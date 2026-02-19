@@ -1,0 +1,33 @@
+{
+  "name": "ramraj-interview-insight",
+  "private": true,
+  "version": "0.0.0",
+  "type": "commonjs",
+  "bin": "server.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/genai": "1.41.0",
+    "cor": "^0.0.0",
+    "express": "^5.2.1",
+    "mssql": "^12.2.0",
+    "qrcode.react": "3.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "3.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  },
+  "description": "<div align=\"center\"> <img width=\"1200\" height=\"475\" alt=\"GHBanner\" src=\"https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6\" /> </div>",
+  "main": "server.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

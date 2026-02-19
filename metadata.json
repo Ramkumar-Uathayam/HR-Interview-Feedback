@@ -1,0 +1,5 @@
+{
+  "name": "Ramraj Interview Insight",
+  "description": "An automated platform for collecting and analyzing interview feedback using Gemini AI to derive actionable process improvements.",
+  "requestFramePermissions": []
+}
