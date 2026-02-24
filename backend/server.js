@@ -67,10 +67,10 @@ app.use((req, res, next) => {
 app.use(express.static(rootDir));
 // Database Configuration provided by user
 const dbConfig = {
-    user: process.env.DB_USER || 'sa',
-    password: process.env.DB_PASSWORD || 'iTTsA@536',
-    server: process.env.DB_SERVER || 'BBSAPSERVER',
-    database: process.env.DB_DATABASE || 'SFA',
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    server: process.env.DB_SERVER,
+    database: process.env.DB_DATABASE,
     options: {
         encrypt: false, // Use true for Azure
         trustServerCertificate: true // Useful for self-signed certificates
