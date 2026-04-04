@@ -30,6 +30,7 @@ const express = require('express')
 const cors = require('cors');
 const sql = require('mssql');
 const path = require('path');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3401;
@@ -67,10 +68,10 @@ app.use((req, res, next) => {
 app.use(express.static(rootDir));
 // Database Configuration provided by user
 const dbConfig = {
-    user: process.env.DB_USER || 'sa',
-    password: process.env.DB_PASSWORD || 'iTTsA@536',
-    server: process.env.DB_SERVER || 'BBSAPSERVER',
-    database: process.env.DB_DATABASE || 'SFA',
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    server: process.env.DB_SERVER,
+    database: process.env.DB_DATABASE ,
     options: {
         encrypt: false, // Use true for Azure
         trustServerCertificate: true // Useful for self-signed certificates
@@ -81,31 +82,31 @@ const dbConfig = {
 async function initDb() {
     try {
         let pool = await sql.connect(dbConfig);
-        // await pool.request().query(`
-        //     IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='feedbacks' AND xtype='U')
-        //     CREATE TABLE feedbacks (
-        //         id VARCHAR(50) PRIMARY KEY,
-        //         candidate_name NVARCHAR(255),
-        //         mobile_number CHAR(10),
-        //         designation NVARCHAR(100),
-        //         department NVARCHAR(100),
-        //         address NVARCHAR(MAX),
-        //         submission_date NVARCHAR(20),
-        //         q1_clarity INT,
-        //         q2_communication INT,
-        //         q3_expectations INT,
-        //         q4_ambience INT,
-        //         q5_alignment INT,
-        //         q6_professionalism INT,
-        //         q7_waiting_period INT,
-        //         q8_opportunity INT,
-        //         q9_transparency INT,
-        //         q10_overall INT,
-        //         referral BIT,
-        //         qualitative NVARCHAR(MAX),
-        //         created_at DATETIME DEFAULT GETDATE()
-        //     )
-        // `);
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='hrfeedbacks' AND xtype='U')
+            CREATE TABLE hrfeedbacks (
+                id VARCHAR(50) PRIMARY KEY,
+                candidate_name NVARCHAR(255),
+                mobile_number CHAR(10),
+                designation NVARCHAR(100),
+                department NVARCHAR(100),
+                address NVARCHAR(MAX),
+                submission_date NVARCHAR(20),
+                q1_clarity INT,
+                q2_communication INT,
+                q3_expectations INT,
+                q4_ambience INT,
+                q5_alignment INT,
+                q6_professionalism INT,
+                q7_waiting_period INT,
+                q8_opportunity INT,
+                q9_transparency INT,
+                q10_overall INT,
+                referral BIT,
+                qualitative NVARCHAR(MAX),
+                created_at DATETIME DEFAULT GETDATE()
+            )
+        `);
         console.log('✅ Connected to MSSQL Database');
     } catch (err) {
         console.warn('⚠️ Database connection failed. API routes will attempt connection per-request.', err.message);
@@ -185,6 +186,49 @@ app.post('/api/feedback', async (req, res) => {
     } catch (err) {
         console.error('API POST Error:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// Quiz Results Endpoints
+app.get('/api/quiz/results', async (req, res) => {
+    try {
+        const pool = await sql.connect(dbConfig); // ✅ Fixed
+        const result = await pool.request().query('SELECT * FROM hrquiz_results ORDER BY submission_date DESC');
+        const results = result.recordset.map(row => ({
+            username: row.username,
+            mobileNumber: row.mobile_number,
+            score: row.score,
+            totalQuestions: row.total_questions,
+            set: row.quiz_set || 'A',
+            date: row.submission_date.toISOString()
+        }));
+        res.json(results);
+    } catch (err) {
+        res.status(500).json({ error: 'Database Error', details: err.message });
+    }
+});
+
+app.post('/api/quiz/results', async (req, res) => {
+    const r = req.body;
+    if (!r || !r.username) return res.status(400).json({ error: 'Invalid Data' });
+
+    try {
+        const pool = await sql.connect(dbConfig); // ✅ Fixed
+        await pool.request()
+            .input('username', sql.NVarChar(100), r.username)
+            .input('mobile_number', sql.Char(10), r.mobileNumber)
+            .input('score', sql.Int, r.score)
+            .input('total_questions', sql.Int, r.totalQuestions)
+            .input('quiz_set', sql.NVarChar(10), r.set || 'A')
+            .query(`
+                INSERT INTO hrquiz_results (username, mobile_number, score, total_questions, quiz_set)
+                VALUES (@username, @mobile_number, @score, @total_questions, @quiz_set)
+            `);
+        
+        res.status(201).json({ success: true });
+    } catch (err) {
+        console.error('Quiz Save Error:', err.message);
+        res.status(500).json({ error: 'Save Failed', details: err.message });
     }
 });
 

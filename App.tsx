@@ -4,10 +4,13 @@ import { FeedbackForm } from './components/FeedbackForm.tsx';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { LoginForm } from './components/LoginForm.tsx';
 import { QRDisplay } from './components/QRDisplay.tsx';
-import { InterviewFeedback } from './types.ts';
+import { QuizContest } from './components/QuizContest.tsx';
+import { QuizManager } from './components/QuizManager.tsx';
+import { LiveResults } from './components/LiveResults.tsx';
+import { InterviewFeedback, QuizQuestion, QuizSettings, QuizResult } from './types.ts';
 import { BRAND_LOGO_URL, API_BASE_URL } from './constants.ts';
 
-type View = 'candidate' | 'admin' | 'qr' | 'login';
+type View = 'candidate' | 'admin' | 'qr' | 'login' | 'quiz' | 'quiz-admin';
 
 // Robust UUID generator that works in insecure contexts (HTTP)
 const generateUUID = (): string => {
@@ -32,6 +35,30 @@ const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [feedbacks, setFeedbacks] = useState<InterviewFeedback[]>([]);
   const [submitted, setSubmitted] = useState(false);
+  
+  // Quiz State
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [quizSettings, setQuizSettings] = useState<QuizSettings>({ timerPerQuestion: 15, isActive: false, activeSet: 'A' });
+  const [quizResults, setQuizResults] = useState<QuizResult[]>([]);
+   const [quizMode, setQuizMode] = useState<'leaderboard' | 'contest'>('leaderboard');
+  const [selectedSet, setSelectedSet] = useState('A');
+
+  const availableSets = Array.from(new Set(quizQuestions.map(q => q.set))).sort();
+
+ 
+
+  const fetchQuizResults = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/quiz/results`);
+      if (response.ok) {
+        const data = await response.json();
+        setQuizResults(data);
+        localStorage.setItem('Uathayam_quiz_results', JSON.stringify(data));
+      }
+    } catch (e) {
+      console.warn("Could not fetch quiz results from server", e);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -59,11 +86,28 @@ const App: React.FC = () => {
       }
     };
 
+    // Load Quiz Data from LocalStorage (for demo/persistence)
+    const savedQuestions = localStorage.getItem('ramraj_quiz_questions');
+    const savedSettings = localStorage.getItem('ramraj_quiz_settings');
+    const savedResults = localStorage.getItem('ramraj_quiz_results');
+    
+    if (savedQuestions) setQuizQuestions(JSON.parse(savedQuestions));
+    if (savedSettings) setQuizSettings(JSON.parse(savedSettings));
+    if (savedResults) setQuizResults(JSON.parse(savedResults));
+
     fetchData();
+    fetchQuizResults();
   }, []);
 
+   useEffect(() => {
+    if (view === 'quiz' && !quizSettings.isActive) {
+      setView('candidate');
+    }
+  }, [quizSettings.isActive, view]);
+
+
   useEffect(() => {
-    if (view === 'admin' && !isLoggedIn) {
+    if ((view === 'admin' || view === 'quiz-admin') && !isLoggedIn) {
       setView('login');
     }
   }, [view, isLoggedIn]);
@@ -97,6 +141,38 @@ const App: React.FC = () => {
       console.error("Critical: Failed to sync with server", e);
       alert(`Submission Error: ${e instanceof Error ? e.message : 'Unknown error'}. Please check your connection and try again.`);
     }
+  };
+
+  const handleQuizSubmit = async (result: QuizResult) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/quiz/results`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result)
+      });
+
+      if (response.ok) {
+        fetchQuizResults();
+      } else {
+        throw new Error('Failed to save quiz result to server');
+      }
+    } catch (e) {
+      console.error("Quiz Sync Error:", e);
+      // Fallback to local state if server fails
+      const updatedResults = [result, ...quizResults];
+      setQuizResults(updatedResults);
+      localStorage.setItem('ramraj_quiz_results', JSON.stringify(updatedResults));
+    }
+  };
+
+  const updateQuizQuestions = (questions: QuizQuestion[]) => {
+    setQuizQuestions(questions);
+    localStorage.setItem('ramraj_quiz_questions', JSON.stringify(questions));
+  };
+
+  const updateQuizSettings = (settings: QuizSettings) => {
+    setQuizSettings(settings);
+    localStorage.setItem('ramraj_quiz_settings', JSON.stringify(settings));
   };
 
   const handleLogout = () => {
@@ -145,8 +221,18 @@ const App: React.FC = () => {
                   view === 'candidate' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
                 }`}
               >
-                Feedback Form
+                Feedback
               </button>
+              {quizSettings.isActive && (
+                <button
+                  onClick={() => setView('quiz')}
+                  className={`px-6 py-2 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                    view === 'quiz' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Quiz Contest
+                </button>
+              )} 
               <button
                 onClick={() => setView('qr')}
                 className={`px-6 py-2 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${
@@ -161,6 +247,24 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4">
             {isLoggedIn ? (
               <div className="flex items-center gap-3">
+                <div className="hidden sm:flex gap-1 p-1 bg-slate-100 rounded-2xl mr-4">
+                  <button
+                    onClick={() => setView('admin')}
+                    className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                      view === 'admin' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    Analytics
+                  </button>
+                  <button
+                    onClick={() => setView('quiz-admin')}
+                    className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                      view === 'quiz-admin' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    Quiz Manager
+                  </button>
+                </div>
                 <div className="flex flex-col items-end hidden sm:flex">
                   <span className="text-xs font-black text-slate-800">HR ADMIN</span>
                   <span className="text-[10px] text-green-500 font-bold uppercase tracking-wider">Secure Session</span>
@@ -186,10 +290,44 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[calc(100vh-80px)]">
-        {view === 'candidate' && <FeedbackForm onSubmit={handleFormSubmit} />}
+         {view === 'candidate' && <FeedbackForm onSubmit={handleFormSubmit} />}
+        {view === 'quiz' && (
+          quizMode === 'contest' ? (
+            <QuizContest 
+              questions={quizQuestions} 
+              settings={{ ...quizSettings, activeSet: selectedSet }} 
+              results={quizResults}
+              onSubmit={(result) => {
+                handleQuizSubmit(result);
+              }} 
+              onBack={() => {
+                setQuizMode('leaderboard');
+                fetchQuizResults(); // Refresh results when going back
+              }}
+            />
+          ) : (
+            <LiveResults 
+              results={quizResults}
+              availableSets={availableSets.length > 0 ? availableSets : ['A', 'B', 'C']}
+              activeSet={selectedSet}
+              onSetChange={setSelectedSet}
+              onStart={() => setQuizMode('contest')}
+              isQuizActive={quizSettings.isActive}
+            />
+          )
+        )}
         {view === 'qr' && <QRDisplay />}
         {view === 'login' && <LoginForm onLogin={() => { setIsLoggedIn(true); setView('admin'); }} />}
         {view === 'admin' && isLoggedIn && <AdminDashboard feedbacks={feedbacks} />}
+        {view === 'quiz-admin' && isLoggedIn && (
+          <QuizManager 
+            questions={quizQuestions} 
+            settings={quizSettings} 
+            results={quizResults}
+            onUpdateQuestions={updateQuizQuestions}
+            onUpdateSettings={updateQuizSettings}
+          />
+        )}
       </main>
 
       <footer className="py-16 text-center border-t border-slate-100 bg-white print:hidden">
@@ -197,7 +335,7 @@ const App: React.FC = () => {
            <div className="h-px w-24 bg-slate-200"></div>
         </div>
         <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em] px-4">
-          B and B Textile, Erode • Process Intelligence v2.5.0
+          Ramraj Cotton - Fabric Unit • Process Intelligence v2.5.0
         </p>
       </footer>
     </div>

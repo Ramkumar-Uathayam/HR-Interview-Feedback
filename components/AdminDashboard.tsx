@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { InterviewFeedback, AIAnalysis } from '../types.ts';
 import { QUESTIONS } from '../constants.ts';
 import { analyzeFeedback } from '../services/gemini.ts';
+import { utils, writeFile } from 'xlsx';
 
 interface AdminDashboardProps {
   feedbacks: InterviewFeedback[];
@@ -43,6 +44,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ feedbacks }) => 
     }
   };
 
+  const exportToExcel = () => {
+    const data = feedbacks.map(f => {
+      const row: any = {
+        'Candidate Name': f.candidateName,
+        'Mobile Number': f.mobileNumber,
+        'Designation': f.designation,
+        'Department': f.department,
+        'Address': f.address,
+        'Date': f.date,
+        'Referral': f.referral ? 'Yes' : 'No',
+        'Qualitative Feedback': f.qualitative,
+      };
+
+      // Add ratings
+      QUESTIONS.forEach(q => {
+        row[q.en] = (f.ratings as any)[q.id];
+      });
+
+      return row;
+    });
+
+    const worksheet = utils.json_to_sheet(data);
+    const workbook = utils.book_new();
+    utils.book_append_sheet(workbook, worksheet, "Feedback Data");
+    writeFile(workbook, `Ramraj_Interview_Feedback_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
   if (!stats) return <div className="p-10 text-center text-slate-500">No feedback entries yet.</div>;
 
   return (
@@ -52,9 +79,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ feedbacks }) => 
           <h1 className="text-3xl font-bold text-slate-800">HR Analytics Dashboard</h1>
           <p className="text-slate-500">Real-time processing of {stats.total} entries</p>
         </div>
-
+        <div className="flex gap-3">
+          <button
+            onClick={exportToExcel}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold transition-all shadow-md"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Export Excel
+          </button>
+          </div>
       </div>
-
+    
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Responses</p>
@@ -70,6 +107,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ feedbacks }) => 
             {(feedbacks.reduce((acc, f) => acc + (f.ratings.q10_overall || 0), 0) / feedbacks.length).toFixed(1)}/5
           </h2>
         </div>
+    
       </div>
 
       {analysis && (

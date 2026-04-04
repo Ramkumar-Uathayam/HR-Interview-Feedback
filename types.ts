@@ -30,3 +30,31 @@ export interface AIAnalysis {
   recommendations: string[];
   sentimentScore: number;
 }
+
+export interface QuizQuestion {
+  id: string;
+  set: string; // A, B, C, etc.
+  question: string;
+  options: {
+    A: string;
+    B: string;
+    C: string;
+    D: string;
+  };
+  correctAnswer: 'A' | 'B' | 'C' | 'D';
+}
+
+export interface QuizSettings {
+  timerPerQuestion: number; // in seconds
+  isActive: boolean;
+  activeSet: string; // The currently active question set (e.g., 'A')
+}
+
+export interface QuizResult {
+  username: string;
+  mobileNumber: string;
+  score: number;
+  totalQuestions: number;
+  date: string;
+  set: string;
+}
