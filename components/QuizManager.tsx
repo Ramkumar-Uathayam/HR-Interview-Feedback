@@ -44,7 +44,8 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
           
           const rawAnswer = String(row.Answer || row.answer || row.CorrectAnswer || row.correct_answer || '').trim();
           const answerText = rawAnswer.toLowerCase();
-          let correctAnswer: 'A' | 'B' | 'C' | 'D' = 'A';
+          // let correctAnswer: 'A' | 'B' | 'C' | 'D' = 'A';
+          let correctAnswer: string = 'A';
           
           const optA = options.A.toLowerCase();
           const optB = options.B.toLowerCase();
@@ -60,16 +61,41 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
           else if (optC !== '' && (answerText.startsWith(optC) || optC.startsWith(answerText))) correctAnswer = 'C';
           else if (optD !== '' && (answerText.startsWith(optD) || optD.startsWith(answerText))) correctAnswer = 'D';
           else {
-            const upperAnswer = rawAnswer.toUpperCase();
+           const upperAnswer = rawAnswer.toUpperCase();
             if (['A', 'B', 'C', 'D'].includes(upperAnswer)) {
-              correctAnswer = upperAnswer as 'A' | 'B' | 'C' | 'D';
+              correctAnswer = upperAnswer;
+            } else {
+              correctAnswer = rawAnswer; // Store the actual word for non-MCQ
             }
+          }
+
+
+           // Detect Question Type
+          let type: any = 'MULTIPLE_CHOICE';
+          const rowType = String(row.Type || row.type || '').toUpperCase();
+          const imageUrl = row.Image || row.ImageUrl || row.image || row.image_url;
+          const memoryWordsRaw = row.Words || row.words || row.MemoryWords;
+
+          if (rowType === 'MEMORY' || rowType === 'MEMORY_TEST' || memoryWordsRaw) {
+            type = 'MEMORY_TEST';
+          } else if (rowType === 'PICTURE' || rowType === 'PICTURE_CHOICE' || imageUrl) {
+            type = 'PICTURE_CHOICE';
+          } else if (rowType === 'JUMBLED' || rowType === 'JUMBLED_WORD') {
+            type = 'JUMBLED_WORD';
+          }
+
+          let memoryWords: string[] | undefined = undefined;
+          if (type === 'MEMORY_TEST' && memoryWordsRaw) {
+            memoryWords = String(memoryWordsRaw).split(',').map(w => w.trim()).filter(w => w !== '');
           }
 
           return {
             id: `q-${Date.now()}-${sheetIndex}-${index}`,
             set: setName,
+            type,
             question: String(row.Question || row.question || '').trim(),
+            imageUrl: imageUrl ? String(imageUrl).trim() : undefined,
+            memoryWords,
             options,
             correctAnswer,
           };
@@ -206,16 +232,36 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
               filteredQuestions.map((q, i) => (
                 <div key={q.id} className="p-6 bg-slate-50 rounded-3xl border border-slate-100 group relative">
                   <div className="flex justify-between items-start mb-3">
-                    <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Q{i + 1}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Q{i + 1}</span>
+                      <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${
+                        q.type === 'MEMORY_TEST' ? 'bg-amber-100 text-amber-700' :
+                        q.type === 'PICTURE_CHOICE' ? 'bg-purple-100 text-purple-700' :
+                        q.type === 'JUMBLED_WORD' ? 'bg-blue-100 text-blue-700' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {q.type?.replace('_', ' ')}
+                      </span>
+                    </div>
                     <div className="flex items-center gap-2">
                       {editingId === q.id ? (
-                        <select 
-                          value={q.correctAnswer}
-                          onChange={(e) => handleUpdateQuestion(q.id, { correctAnswer: e.target.value as 'A' | 'B' | 'C' | 'D' })}
-                          className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-white border border-green-200 px-2 py-1 rounded-lg outline-none"
-                        >
-                          {['A', 'B', 'C', 'D'].map(opt => <option key={opt} value={opt}>Correct: {opt}</option>)}
-                        </select>
+                        q.type === 'MULTIPLE_CHOICE' ? (
+                          <select 
+                            value={q.correctAnswer}
+                            onChange={(e) => handleUpdateQuestion(q.id, { correctAnswer: e.target.value })}
+                            className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-white border border-green-200 px-2 py-1 rounded-lg outline-none"
+                          >
+                            {['A', 'B', 'C', 'D'].map(opt => <option key={opt} value={opt}>Correct: {opt}</option>)}
+                          </select>
+                        ) : (
+                          <input 
+                            type="text"
+                            value={q.correctAnswer}
+                            onChange={(e) => handleUpdateQuestion(q.id, { correctAnswer: e.target.value })}
+                            placeholder="Correct Answer"
+                            className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-white border border-green-200 px-2 py-1 rounded-lg outline-none w-32"
+                          />
+                        )
                       ) : (
                         <span className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-green-50 px-2 py-1 rounded-lg">Correct: {q.correctAnswer}</span>
                       )}
@@ -242,6 +288,19 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
                     />
                   ) : (
                     <p className="font-bold text-slate-800 mb-4">{q.question}</p>
+                  )}
+                  {q.type === 'PICTURE_CHOICE' && q.imageUrl && (
+                    <div className="mb-4 rounded-xl overflow-hidden border border-slate-200 h-32">
+                      <img src={q.imageUrl} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </div>
+                  )}
+
+                  {q.type === 'MEMORY_TEST' && q.memoryWords && (
+                    <div className="mb-4 flex flex-wrap gap-1">
+                      {q.memoryWords.map((w, idx) => (
+                        <span key={idx} className="text-[9px] bg-white border border-slate-200 px-2 py-0.5 rounded-md text-slate-600 font-bold">{w}</span>
+                      ))}
+                    </div>
                   )}
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {(['A', 'B', 'C', 'D'] as const).map(key => (

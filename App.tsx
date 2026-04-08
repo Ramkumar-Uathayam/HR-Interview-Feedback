@@ -335,7 +335,7 @@ const App: React.FC = () => {
            <div className="h-px w-24 bg-slate-200"></div>
         </div>
         <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em] px-4">
-          Ramraj Cotton - Fabric Unit • Process Intelligence v2.5.0
+          B and B Textile • Erode • Process Intelligence v2.5.0
         </p>
       </footer>
     </div>

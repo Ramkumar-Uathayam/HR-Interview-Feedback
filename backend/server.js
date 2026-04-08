@@ -25,7 +25,6 @@ if (!AbortSignal.any) {
     };
 }
 
-
 const express = require('express')
 const cors = require('cors');
 const sql = require('mssql');
@@ -71,11 +70,7 @@ const dbConfig = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     server: process.env.DB_SERVER,
-<<<<<<< HEAD
-    database: process.env.DB_DATABASE ,
-=======
     database: process.env.DB_DATABASE,
->>>>>>> 08391e020142dfa475c085d7c994fba65c1a20ca
     options: {
         encrypt: false, // Use true for Azure
         trustServerCertificate: true // Useful for self-signed certificates

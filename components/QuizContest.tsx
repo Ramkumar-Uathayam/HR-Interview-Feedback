@@ -14,27 +14,50 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
   const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
+  const [isEvaluated, setIsEvaluated] = useState(false);
+
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(settings.timerPerQuestion);
+  const [memorizeTimeLeft, setMemorizeTimeLeft] = useState(0);
+  const [isMemorizing, setIsMemorizing] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
   const [quizFinished, setQuizFinished] = useState(false);
   const [candidateInfo, setCandidateInfo] = useState({ username: '', mobile: '' });
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-useEffect(() => {
-    if (quizStarted && !quizFinished && timeLeft > 0 && !isAnswerRevealed) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-    } else if (timeLeft === 0 && quizStarted && !quizFinished && !isAnswerRevealed) {
-      evaluateAnswer();
+  const currentQuestion = filteredQuestions[currentQuestionIndex];
+
+  useEffect(() => {
+   if (quizStarted && !quizFinished) {
+      if (isMemorizing && memorizeTimeLeft > 0) {
+        timerRef.current = setInterval(() => {
+          setMemorizeTimeLeft((prev) => prev - 1);
+        }, 1000);
+      } else if (isMemorizing && memorizeTimeLeft === 0) {
+        setIsMemorizing(false);
+        setTimeLeft(settings.timerPerQuestion);
+      } else if (!isMemorizing && timeLeft > 0 && !isAnswerRevealed) {
+        timerRef.current = setInterval(() => {
+          setTimeLeft((prev) => prev - 1);
+        }, 1000);
+      } else if (!isMemorizing && timeLeft === 0 && !isAnswerRevealed) {
+        evaluateAnswer();
+      }
     }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [quizStarted, quizFinished, timeLeft, isAnswerRevealed]);
+  }, [quizStarted, quizFinished, timeLeft, memorizeTimeLeft, isMemorizing, isAnswerRevealed]);
+
+  useEffect(() => {
+    if (quizStarted && currentQuestion?.type === 'MEMORY_TEST' && !isAnswerRevealed && currentQuestionIndex >= 0) {
+      setIsMemorizing(true);
+      setMemorizeTimeLeft(10); // 10 seconds to memorize
+    }
+  }, [currentQuestionIndex, quizStarted]);
+
 
   const handleStartQuiz = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,20 +95,36 @@ useEffect(() => {
     setSelectedAnswer(answer);
   };
 
-  const evaluateAnswer = () => {
-    if (isAnswerRevealed) return;
+  const evaluateAnswer = (isManualCorrect?: boolean) => {
+    if (isEvaluated) return;
     
-    const isCorrect = selectedAnswer === filteredQuestions[currentQuestionIndex].correctAnswer;
+    const isCorrect = isManualCorrect !== undefined 
+      ? isManualCorrect 
+      : selectedAnswer === filteredQuestions[currentQuestionIndex].correctAnswer;
+
     if (isCorrect) {
       setScore((prev) => prev + 1);
     }
+     setIsEvaluated(true);
     setIsAnswerRevealed(true);
     return isCorrect;
   };
 
   const handleRevealAnswer = () => {
-    if (!selectedAnswer || isAnswerRevealed) return;
-    evaluateAnswer();
+    if (isAnswerRevealed) return;
+    
+    // For multiple choice, we need a selection
+    if (currentQuestion.type === 'MULTIPLE_CHOICE' && !selectedAnswer) return;
+    
+    if (currentQuestion.type === 'MULTIPLE_CHOICE') {
+      evaluateAnswer();
+    } else {
+      setIsAnswerRevealed(true);
+    }
+  };
+
+  const handleManualEvaluation = (isCorrect: boolean) => {
+    evaluateAnswer(isCorrect);
   };
 
   const handleNextQuestion = () => {
@@ -95,6 +134,7 @@ useEffect(() => {
       setCurrentQuestionIndex((prev) => prev + 1);
       setSelectedAnswer(null);
       setIsAnswerRevealed(false); 
+      setIsEvaluated(false);
       setTimeLeft(settings.timerPerQuestion);
     } else {
       finishQuiz();
@@ -104,7 +144,7 @@ useEffect(() => {
  const finishQuiz = () => {
     // If answer wasn't revealed (e.g. timer ran out), evaluate it now
     let finalScore = score;
-    if (!isAnswerRevealed && selectedAnswer === filteredQuestions[currentQuestionIndex].correctAnswer) {
+     if (!isEvaluated && selectedAnswer === filteredQuestions[currentQuestionIndex].correctAnswer) {
       finalScore += 1;
     }
 
@@ -208,7 +248,7 @@ useEffect(() => {
     );
   }
 
- const currentQuestion = filteredQuestions[currentQuestionIndex];
+//  const currentQuestion = filteredQuestions[currentQuestionIndex];
 
   return (
     <div className="min-h-[calc(100vh-80px)] bg-[#050a18] flex items-center justify-center p-4 md:p-10 font-sans overflow-hidden relative">
@@ -239,12 +279,14 @@ useEffect(() => {
           
           <div className="relative">
             <div className={`w-24 h-24 rounded-full border-[8px] flex flex-col items-center justify-center transition-all duration-300 shadow-[0_0_40px_rgba(79,70,229,0.2)] ${
-              timeLeft <= 5 
+              isMemorizing 
+                ? 'border-amber-500 text-amber-500 shadow-[0_0_50px_rgba(245,158,11,0.4)]'
+                : timeLeft <= 5 
                 ? 'border-red-500 text-red-500 shadow-[0_0_50px_rgba(239,68,68,0.4)] animate-pulse' 
                 : 'border-indigo-600 text-white'
             }`}>
-              <span className="text-3xl font-black leading-none">{timeLeft}</span>
-              <span className="text-[8px] font-bold uppercase tracking-widest mt-1 opacity-60">SEC</span>
+              <span className="text-3xl font-black leading-none">{isMemorizing ? memorizeTimeLeft : timeLeft}</span>
+              <span className="text-[8px] font-bold uppercase tracking-widest mt-1 opacity-60">{isMemorizing ? 'MEMORIZE' : 'SEC'}</span>
             </div>
             <div className="absolute -inset-2 rounded-full border border-white/5 animate-[spin_10s_linear_infinite]"></div>
           </div>
@@ -255,20 +297,71 @@ useEffect(() => {
           <div className="absolute inset-0 bg-indigo-500/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
           <div className="relative">
             {/* Horizontal lines connecting to the sides */}
-            <div className="absolute top-1/2 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent -z-10"></div>
-            
-            <div className="bg-[#0c1226] border-y-2 border-x-0 md:border-x-2 border-indigo-500/40 p-8 md:p-12 rounded-[2rem] md:rounded-[4rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden">
+              <div className="bg-[#0c1226] border-y-2 border-x-0 md:border-x-2 border-indigo-500/40 p-8 md:p-12 rounded-[2rem] md:rounded-[4rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,rgba(79,70,229,0.1)_0%,transparent_70%)]"></div>
-              <h4 className="text-2xl md:text-4xl font-bold text-white text-center leading-snug tracking-tight relative z-10">
-                {currentQuestion.question}
-              </h4>
+              
+              <div className="relative z-10 flex flex-col items-center gap-6">
+                {currentQuestion.type === 'PICTURE_CHOICE' && currentQuestion.imageUrl && (
+                  <div className="w-full max-w-md aspect-video rounded-2xl overflow-hidden border-2 border-indigo-500/30 shadow-2xl">
+                    <img 
+                      src={currentQuestion.imageUrl} 
+                      alt="Question" 
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
+
+                {currentQuestion.type === 'JUMBLED_WORD' && (
+                  <div className="px-4 py-1 bg-amber-500/20 border border-amber-500/40 rounded-full mb-2">
+                    <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">JUMBLED WORD</span>
+                  </div>
+                )}
+
+                {isMemorizing ? (
+                  <div className="w-full">
+                    <h4 className="text-xl font-bold text-indigo-400 text-center mb-8 uppercase tracking-widest">Memorize these words:</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      {currentQuestion.memoryWords?.map((word, idx) => (
+                        <div key={idx} className="bg-white/5 border border-white/10 p-4 rounded-xl text-center font-black text-white text-lg animate-in fade-in zoom-in duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
+                          {word}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                   <>
+                    {currentQuestion.type === 'JUMBLED_WORD' && (
+                      <div className="w-full flex flex-col items-center gap-4">
+                        <div className="px-4 py-1 bg-amber-500/20 border border-amber-500/40 rounded-full mb-2">
+                          {/* <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">JUMBLED WORDS</span> */}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-lg">
+                          {currentQuestion.question.split(/[\n, ]+/).filter(w => w.trim() !== '').map((word, idx) => (
+                            <div key={idx} className="bg-white/5 border border-white/10 p-4 rounded-xl text-center font-black text-white text-2xl tracking-[0.2em] animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
+                              {word.toUpperCase()}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(currentQuestion.type === 'MULTIPLE_CHOICE' || currentQuestion.type === 'PICTURE_CHOICE' || currentQuestion.type === 'MEMORY_TEST') && (
+                      <h4 className="text-2xl md:text-4xl font-bold text-white text-center leading-snug tracking-tight">
+                        {currentQuestion.question}
+                      </h4>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Options Grid - 2x2 with KBC Style */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6 mb-12">
-          {(['A', 'B', 'C', 'D'] as const).map((key) => (
+         {currentQuestion.type === 'MULTIPLE_CHOICE' ? ( 
+        <div className={`grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6 mb-12 transition-all duration-500 ${isMemorizing ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
+         {(['A', 'B', 'C', 'D'] as const).map((key) => (
             <button
               key={key}
               onClick={() => handleAnswerSelect(key)}
@@ -312,8 +405,58 @@ useEffect(() => {
             </button>
           ))}
         </div>
+ ) : (
+          <div className={`flex flex-col items-center gap-8 mb-12 transition-all duration-500 ${isMemorizing ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
+            {isAnswerRevealed && (
+              <div className="w-full max-w-2xl bg-indigo-500/10 border border-indigo-500/30 rounded-3xl p-8 text-center animate-in zoom-in duration-500">
+                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-4">Correct Answer</p>
+                <h5 className="text-3xl md:text-5xl font-black text-white tracking-tight">
+                  {currentQuestion.type === 'MEMORY_TEST' 
+                    ? currentQuestion.memoryWords?.join(', ') 
+                    : currentQuestion.correctAnswer}
+                </h5>
+              </div>
+            )}
+            
+            {!isAnswerRevealed ? (
+              <button
+                onClick={handleRevealAnswer}
+                className="group relative px-12 md:px-20 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden bg-amber-600 text-white shadow-[0_0_40px_rgba(245,158,11,0.4)] hover:bg-amber-500 hover:shadow-[0_0_60px_rgba(245,158,11,0.6)] active:scale-95"
+              >
+                <span className="relative z-10">REVEAL ANSWER</span>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
+              </button>
+            ) : (
+              <div className="flex gap-6 w-full max-w-md">
+                <button
+                 onClick={() => handleManualEvaluation(true)}
+                  disabled={isEvaluated}
+                  className={`flex-1 py-5 font-black rounded-2xl transition-all uppercase tracking-widest text-sm ${
+                    isEvaluated 
+                      ? 'bg-slate-700 text-slate-500 cursor-not-allowed opacity-50' 
+                      : 'bg-green-600 hover:bg-green-500 text-white shadow-[0_0_40px_rgba(34,197,94,0.3)] hover:shadow-[0_0_60px_rgba(34,197,94,0.5)] active:scale-95'
+                  }`}
+                >
+                  CORRECT
+                </button>
+                <button
+                  onClick={() => handleManualEvaluation(false)}
+                   disabled={isEvaluated}
+                  className={`flex-1 py-5 font-black rounded-2xl transition-all uppercase tracking-widest text-sm ${
+                    isEvaluated 
+                      ? 'bg-slate-700 text-slate-500 cursor-not-allowed opacity-50' 
+                      : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_40px_rgba(239,68,68,0.3)] hover:shadow-[0_0_60px_rgba(239,68,68,0.5)] active:scale-95'
+                  }`}
+                >
+                  WRONG
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Action Buttons */}
+        {/* Action Buttons (Only for Multiple Choice) */}
+        {currentQuestion.type === 'MULTIPLE_CHOICE' && (
         <div className="flex justify-center gap-6">
           {!isAnswerRevealed ? (
             <button
@@ -342,6 +485,22 @@ useEffect(() => {
             </button>
           )}
         </div>
+         )}
+
+        {/* Next Button for Binary Choice (Only after evaluation) */}
+        {currentQuestion.type !== 'MULTIPLE_CHOICE' && isAnswerRevealed && (
+          <div className="flex justify-center mt-8">
+            <button
+              onClick={handleNextQuestion}
+              className="group relative px-12 md:px-20 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden bg-indigo-600 text-white shadow-[0_0_40px_rgba(79,70,229,0.4)] hover:bg-indigo-500 hover:shadow-[0_0_60px_rgba(79,70,229,0.6)] active:scale-95"
+            >
+              <span className="relative z-10">
+                {currentQuestionIndex === filteredQuestions.length - 1 ? 'FINISH CONTEST' : 'NEXT QUESTION'}
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
+            </button>
+          </div>
+        )}
 
         {/* Progress Dots */}
         <div className="mt-12 flex justify-center gap-3">

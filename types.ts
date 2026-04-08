@@ -31,17 +31,22 @@ export interface AIAnalysis {
   sentimentScore: number;
 }
 
+export type QuestionType = 'MULTIPLE_CHOICE' | 'PICTURE_CHOICE' | 'MEMORY_TEST' | 'JUMBLED_WORD';
+
 export interface QuizQuestion {
   id: string;
   set: string; // A, B, C, etc.
+   type: QuestionType;
   question: string;
+   imageUrl?: string;
+  memoryWords?: string[];
   options: {
     A: string;
     B: string;
     C: string;
     D: string;
   };
-  correctAnswer: 'A' | 'B' | 'C' | 'D';
+  correctAnswer: string;// 'A' | 'B' | 'C' | 'D';
 }
 
 export interface QuizSettings {
