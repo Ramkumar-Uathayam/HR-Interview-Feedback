@@ -5,7 +5,7 @@ export const BRAND_LOGO_URL = "./public/image/UATHAYAM LOGO png.png";
 
 // Centralized API configuration - Matches server.js port 3300
 export const API_BASE_URL = 'https://vms.uathayam.in:4300/HRAPI/api';
-  // export const API_BASE_URL = 'http://localhost:3401/api';
+//   export const API_BASE_URL = 'http://localhost:3401/api';
 export const DESIGNATIONS = [
   "STAFF",
   "WORKER"
