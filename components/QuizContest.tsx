@@ -10,23 +10,82 @@ interface QuizContestProps {
 }
 
 export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, results, onSubmit, onBack }) => {
- const filteredQuestions = questions.filter(q => q.set === settings.activeSet);
+  const MEMORY_DISPLAY_SECONDS = 25;
+  const filteredQuestions = questions.filter(
+    q => q.set === settings.activeSet && q.isActive !== false && (settings.enabledSets.length === 0 || settings.enabledSets.includes(q.set))
+  );
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<'A' | 'B' | 'C' | 'D' | null>(null);
   const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
   const [isEvaluated, setIsEvaluated] = useState(false);
 
   const [score, setScore] = useState(0);
+  const [finalScore, setFinalScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(settings.timerPerQuestion);
   const [memorizeTimeLeft, setMemorizeTimeLeft] = useState(0);
   const [isMemorizing, setIsMemorizing] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
   const [quizFinished, setQuizFinished] = useState(false);
   const [candidateInfo, setCandidateInfo] = useState({ username: '', mobile: '' });
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [selectedAnswerTimeLeft, setSelectedAnswerTimeLeft] = useState<number | null>(null);
+  const [lastAwardedPoints, setLastAwardedPoints] = useState<number>(0);
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const lastWarningSecondRef = useRef<number | null>(null);
 
   const currentQuestion = filteredQuestions[currentQuestionIndex];
+  const progressPercent = ((currentQuestionIndex + 1) / filteredQuestions.length) * 100;
+  const regularPointsPerQuestion = 1;
+  const statusMessage = isMemorizing
+    ? `Memorize carefully. Answering starts in ${memorizeTimeLeft} seconds.`
+    : isAnswerRevealed
+    ? 'Answer revealed. Continue when you are ready.'
+    : currentQuestion.type === 'MULTIPLE_CHOICE'
+    ? selectedAnswer
+      ? 'Answer selected. Click Show Answer when the host is ready.'
+      : 'Ask the participant to choose one answer option.'
+    : 'Use Show Answer when you want to reveal the correct response.';
+
+  const playTone = (frequency: number, duration: number, type: OscillatorType = 'sine', volume = 0.05) => {
+    if (typeof window === 'undefined') return;
+
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextClass();
+    }
+
+    const context = audioContextRef.current;
+    if (context.state === 'suspended') {
+      context.resume().catch(() => undefined);
+    }
+
+    const oscillator = context.createOscillator();
+    const gainNode = context.createGain();
+
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, context.currentTime);
+    gainNode.gain.setValueAtTime(volume, context.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, context.currentTime + duration);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+
+    oscillator.start();
+    oscillator.stop(context.currentTime + duration);
+  };
+
+  const playBuzzerSound = () => {
+    playTone(190, 0.18, 'sawtooth', 0.06);
+    setTimeout(() => playTone(140, 0.26, 'sawtooth', 0.05), 120);
+  };
+
+  const playWarningTick = () => {
+    playTone(880, 0.08, 'square', 0.025);
+  };
 
   useEffect(() => {
    if (quizStarted && !quizFinished) {
@@ -41,22 +100,32 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
         timerRef.current = setInterval(() => {
           setTimeLeft((prev) => prev - 1);
         }, 1000);
-      } else if (!isMemorizing && timeLeft === 0 && !isAnswerRevealed) {
-        evaluateAnswer();
       }
     }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [quizStarted, quizFinished, timeLeft, memorizeTimeLeft, isMemorizing, isAnswerRevealed]);
+  }, [quizStarted, quizFinished, timeLeft, memorizeTimeLeft, isMemorizing, isAnswerRevealed, currentQuestionIndex, settings.timerPerQuestion]);
 
   useEffect(() => {
     if (quizStarted && currentQuestion?.type === 'MEMORY_TEST' && !isAnswerRevealed && currentQuestionIndex >= 0) {
       setIsMemorizing(true);
-      setMemorizeTimeLeft(10); // 10 seconds to memorize
+      setMemorizeTimeLeft(MEMORY_DISPLAY_SECONDS);
     }
   }, [currentQuestionIndex, quizStarted]);
+
+  useEffect(() => {
+    if (!quizStarted || quizFinished || isMemorizing || isAnswerRevealed) {
+      lastWarningSecondRef.current = null;
+      return;
+    }
+
+    if (timeLeft > 0 && timeLeft <= 10 && lastWarningSecondRef.current !== timeLeft) {
+      lastWarningSecondRef.current = timeLeft;
+      playWarningTick();
+    }
+  }, [quizStarted, quizFinished, isMemorizing, isAnswerRevealed, timeLeft]);
 
 
   const handleStartQuiz = (e: React.FormEvent) => {
@@ -93,6 +162,18 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
   const handleAnswerSelect = (answer: 'A' | 'B' | 'C' | 'D') => {
     if (isAnswerRevealed) return; // Prevent changing answer after reveal
     setSelectedAnswer(answer);
+    setSelectedAnswerTimeLeft(timeLeft);
+  };
+
+  const getBonusPoints = () => {
+    if (currentQuestion?.type !== 'MULTIPLE_CHOICE' || selectedAnswerTimeLeft === null) {
+      return 0;
+    }
+
+    const elapsedSeconds = Math.max(0, settings.timerPerQuestion - selectedAnswerTimeLeft);
+    if (elapsedSeconds <= 10) return 2;
+    if (elapsedSeconds <= 20) return 1;
+    return 0;
   };
 
   const evaluateAnswer = (isManualCorrect?: boolean) => {
@@ -103,9 +184,16 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
       : selectedAnswer === filteredQuestions[currentQuestionIndex].correctAnswer;
 
     if (isCorrect) {
-      setScore((prev) => prev + 1);
+      const awardedPoints = regularPointsPerQuestion + getBonusPoints();
+      setLastAwardedPoints(awardedPoints);
+      setScore((prev) => prev + awardedPoints);
+    } else if (currentQuestion?.type === 'MULTIPLE_CHOICE' && selectedAnswer) {
+      setLastAwardedPoints(0);
+      playBuzzerSound();
+    } else {
+      setLastAwardedPoints(0);
     }
-     setIsEvaluated(true);
+    setIsEvaluated(true);
     setIsAnswerRevealed(true);
     return isCorrect;
   };
@@ -114,9 +202,8 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
     if (isAnswerRevealed) return;
     
     // For multiple choice, we need a selection
-    if (currentQuestion.type === 'MULTIPLE_CHOICE' && !selectedAnswer) return;
-    
     if (currentQuestion.type === 'MULTIPLE_CHOICE') {
+      if (!selectedAnswer) return;
       evaluateAnswer();
     } else {
       setIsAnswerRevealed(true);
@@ -133,8 +220,11 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
     if (currentQuestionIndex < filteredQuestions.length - 1) {
       setCurrentQuestionIndex((prev) => prev + 1);
       setSelectedAnswer(null);
+      setSelectedAnswerTimeLeft(null);
       setIsAnswerRevealed(false); 
       setIsEvaluated(false);
+      setLastAwardedPoints(0);
+      lastWarningSecondRef.current = null;
       setTimeLeft(settings.timerPerQuestion);
     } else {
       finishQuiz();
@@ -145,9 +235,11 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
     // If answer wasn't revealed (e.g. timer ran out), evaluate it now
     let finalScore = score;
      if (!isEvaluated && selectedAnswer === filteredQuestions[currentQuestionIndex].correctAnswer) {
-      finalScore += 1;
+      finalScore += regularPointsPerQuestion + getBonusPoints();
     }
 
+    setFinalScore(finalScore);
+    setScore(finalScore);
     setQuizFinished(true);
     const result: QuizResult = {
       username: candidateInfo.username,
@@ -222,13 +314,13 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
       <div className="max-w-md mx-auto py-20 px-6">
         <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-100 text-center">
           <div className="w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
-           <span className="text-3xl font-black text-indigo-600">{score}/{filteredQuestions.length}</span>
+           <span className="text-3xl font-black text-indigo-600">{finalScore}/{filteredQuestions.length}</span>
           </div>
           <h2 className="text-3xl font-black text-slate-800 mb-3">Quiz Completed!</h2>
           <p className="text-slate-500 mb-10 font-medium leading-relaxed">Great job! Your score has been recorded. Thank you for participating.</p>
           <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 mb-8">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Your Score</p>
-           <p className="text-4xl font-black text-indigo-600">{Math.round((score / filteredQuestions.length) * 100)}%</p>
+           <p className="text-4xl font-black text-indigo-600">{Math.round((finalScore / filteredQuestions.length) * 100)}%</p>
           </div>
            <button
              onClick={onBack}
@@ -251,14 +343,14 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
 //  const currentQuestion = filteredQuestions[currentQuestionIndex];
 
   return (
-    <div className="min-h-[calc(100vh-80px)] bg-[#050a18] flex items-center justify-center p-4 md:p-10 font-sans overflow-hidden relative">
+    <div className="h-[calc(100vh-80px)] max-h-[calc(100vh-80px)] bg-[#050a18] flex items-center justify-center p-3 md:p-6 font-sans overflow-hidden relative">
       {/* Background Glows */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-[120px]"></div>
       <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-[120px]"></div>
       
-      <div className="max-w-5xl w-full relative z-10">
+      <div className="max-w-5xl w-full h-full max-h-full relative z-10 flex flex-col justify-center overflow-hidden">
         {/* Header Section */}
-        <div className="flex flex-col md:flex-row justify-between items-center mb-12 gap-6">
+        <div className="flex flex-col md:flex-row justify-between items-center mb-5 md:mb-6 gap-4">
           <div className="text-center md:text-left">
             <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-3">
               <div className="inline-block px-4 py-1 bg-indigo-500/10 border border-indigo-500/30 rounded-full">
@@ -291,25 +383,52 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
             <div className="absolute -inset-2 rounded-full border border-white/5 animate-[spin_10s_linear_infinite]"></div>
           </div>
         </div>
+
+        <div className="mb-4 md:mb-5 space-y-2">
+          <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.35em] text-white/60">
+            <span>Quiz Progress</span>
+            <span>{Math.round(progressPercent)}%</span>
+          </div>
+          <div className="h-3 rounded-full bg-white/10 overflow-hidden border border-white/10">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <div className="bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-center">
+            <p className="text-sm md:text-base font-bold text-white/90">{statusMessage}</p>
+            {!isMemorizing && currentQuestion.type === 'MULTIPLE_CHOICE' && selectedAnswer && !isAnswerRevealed && (
+              <p className="text-xs font-bold text-amber-300 uppercase tracking-[0.25em] mt-2">
+                Selected Answer: {selectedAnswer} | Bonus Ready: +{getBonusPoints()}
+              </p>
+            )}
+          </div>
+        </div>
         
         {/* Question Area - KBC Style Hexagon */}
-        <div className="relative mb-12 group">
+        <div className="relative mb-5 md:mb-6 group flex-1 min-h-0">
           <div className="absolute inset-0 bg-indigo-500/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
-          <div className="relative">
+          <div className="relative h-full">
             {/* Horizontal lines connecting to the sides */}
-              <div className="bg-[#0c1226] border-y-2 border-x-0 md:border-x-2 border-indigo-500/40 p-8 md:p-12 rounded-[2rem] md:rounded-[4rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden">
+              <div className="bg-[#0c1226] border-y-2 border-x-0 md:border-x-2 border-indigo-500/40 p-5 md:p-8 rounded-[2rem] md:rounded-[4rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden h-full flex items-center">
               <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,rgba(79,70,229,0.1)_0%,transparent_70%)]"></div>
               
-              <div className="relative z-10 flex flex-col items-center gap-6">
+              <div className="relative z-10 flex flex-col items-center gap-4 md:gap-5 w-full">
                 {currentQuestion.type === 'PICTURE_CHOICE' && currentQuestion.imageUrl && (
-                  <div className="w-full max-w-md aspect-video rounded-2xl overflow-hidden border-2 border-indigo-500/30 shadow-2xl">
-                    <img 
-                      src={currentQuestion.imageUrl} 
-                      alt="Question" 
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedImage(currentQuestion.imageUrl || null)}
+                    className="w-full max-w-4xl rounded-[2rem] border-2 border-indigo-500/30 shadow-2xl bg-[#10172c] px-4 py-4 md:px-6 md:py-5"
+                  >
+                    <div className="w-full min-h-[16rem] md:min-h-[18rem] max-h-[38vh] flex items-center justify-center rounded-[1.5rem] bg-white/95 overflow-hidden">
+                      <img 
+                        src={currentQuestion.imageUrl} 
+                        alt="Question" 
+                        className="block w-auto max-w-full h-auto max-h-[34vh] md:max-h-[32vh] object-contain"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  </button>
                 )}
 
                 {currentQuestion.type === 'JUMBLED_WORD' && (
@@ -320,10 +439,10 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
 
                 {isMemorizing ? (
                   <div className="w-full">
-                    <h4 className="text-xl font-bold text-indigo-400 text-center mb-8 uppercase tracking-widest">Memorize these words:</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <h4 className="text-lg md:text-xl font-bold text-indigo-400 text-center mb-5 uppercase tracking-widest">Memorize these words:</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                       {currentQuestion.memoryWords?.map((word, idx) => (
-                        <div key={idx} className="bg-white/5 border border-white/10 p-4 rounded-xl text-center font-black text-white text-lg animate-in fade-in zoom-in duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
+                        <div key={idx} className="bg-white/5 border border-white/10 p-3 rounded-xl text-center font-black text-white text-base md:text-lg animate-in fade-in zoom-in duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
                           {word}
                         </div>
                       ))}
@@ -336,9 +455,9 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
                         <div className="px-4 py-1 bg-amber-500/20 border border-amber-500/40 rounded-full mb-2">
                           {/* <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">JUMBLED WORDS</span> */}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-lg">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-lg">
                           {currentQuestion.question.split(/[\n, ]+/).filter(w => w.trim() !== '').map((word, idx) => (
-                            <div key={idx} className="bg-white/5 border border-white/10 p-4 rounded-xl text-center font-black text-white text-2xl tracking-[0.2em] animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
+                            <div key={idx} className="bg-white/5 border border-white/10 p-3 rounded-xl text-center font-black text-white text-xl md:text-2xl tracking-[0.2em] animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
                               {word.toUpperCase()}
                             </div>
                           ))}
@@ -347,7 +466,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
                     )}
 
                     {(currentQuestion.type === 'MULTIPLE_CHOICE' || currentQuestion.type === 'PICTURE_CHOICE' || currentQuestion.type === 'MEMORY_TEST') && (
-                      <h4 className="text-2xl md:text-4xl font-bold text-white text-center leading-snug tracking-tight">
+                      <h4 className="text-lg md:text-2xl font-bold text-white text-center leading-snug tracking-tight max-w-4xl">
                         {currentQuestion.question}
                       </h4>
                     )}
@@ -360,7 +479,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
 
         {/* Options Grid - 2x2 with KBC Style */}
          {currentQuestion.type === 'MULTIPLE_CHOICE' ? ( 
-        <div className={`grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6 mb-12 transition-all duration-500 ${isMemorizing ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
+        <div className={`grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 mb-5 md:mb-6 transition-all duration-500 ${isMemorizing ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
          {(['A', 'B', 'C', 'D'] as const).map((key) => (
             <button
               key={key}
@@ -370,7 +489,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
                 selectedAnswer === key ? 'scale-[1.02]' : ''
               }`}
             >
-              <div className={`relative flex items-center gap-4 p-5 md:p-6 rounded-xl md:rounded-2xl border-2 transition-all duration-300 ${
+                <div className={`relative flex items-center gap-3 p-4 md:p-5 rounded-xl md:rounded-2xl border-2 transition-all duration-300 ${
                 isAnswerRevealed
                   ? key === currentQuestion.correctAnswer
                     ? 'bg-green-600 border-green-400 shadow-[0_0_30px_rgba(34,197,94,0.5)]'
@@ -390,7 +509,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
                 }`}>
                   {key}
                 </div>
-                <span className={`font-bold text-lg md:text-xl tracking-wide text-left ${
+                <span className={`font-bold text-base md:text-lg tracking-wide text-left ${
                   selectedAnswer === key || (isAnswerRevealed && key === currentQuestion.correctAnswer)
                     ? 'text-white' 
                     : 'text-slate-300 group-hover:text-white'
@@ -406,11 +525,11 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
           ))}
         </div>
  ) : (
-          <div className={`flex flex-col items-center gap-8 mb-12 transition-all duration-500 ${isMemorizing ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
+          <div className={`flex flex-col items-center gap-5 mb-5 md:mb-6 transition-all duration-500 ${isMemorizing ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
             {isAnswerRevealed && (
-              <div className="w-full max-w-2xl bg-indigo-500/10 border border-indigo-500/30 rounded-3xl p-8 text-center animate-in zoom-in duration-500">
+              <div className="w-full max-w-2xl bg-indigo-500/10 border border-indigo-500/30 rounded-3xl p-6 text-center animate-in zoom-in duration-500">
                 <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-4">Correct Answer</p>
-                <h5 className="text-3xl md:text-5xl font-black text-white tracking-tight">
+                <h5 className="text-2xl md:text-4xl font-black text-white tracking-tight">
                   {currentQuestion.type === 'MEMORY_TEST' 
                     ? currentQuestion.memoryWords?.join(', ') 
                     : currentQuestion.correctAnswer}
@@ -423,7 +542,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
                 onClick={handleRevealAnswer}
                 className="group relative px-12 md:px-20 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden bg-amber-600 text-white shadow-[0_0_40px_rgba(245,158,11,0.4)] hover:bg-amber-500 hover:shadow-[0_0_60px_rgba(245,158,11,0.6)] active:scale-95"
               >
-                <span className="relative z-10">REVEAL ANSWER</span>
+                <span className="relative z-10">SHOW ANSWER</span>
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
               </button>
             ) : (
@@ -455,6 +574,14 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
           </div>
         )}
 
+        {isAnswerRevealed && lastAwardedPoints > 0 && (
+          <div className="mb-4 flex justify-center">
+            <div className="px-6 py-3 rounded-2xl bg-emerald-500/15 border border-emerald-400/30 text-emerald-200 font-black uppercase tracking-[0.25em] text-xs">
+              Points Awarded: +{lastAwardedPoints}
+            </div>
+          </div>
+        )}
+
         {/* Action Buttons (Only for Multiple Choice) */}
         {currentQuestion.type === 'MULTIPLE_CHOICE' && (
         <div className="flex justify-center gap-6">
@@ -463,12 +590,12 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
               onClick={handleRevealAnswer}
               disabled={selectedAnswer === null}
               className={`group relative px-12 md:px-20 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden ${
-                selectedAnswer === null 
-                  ? 'bg-white/5 text-white/20 cursor-not-allowed' 
+                selectedAnswer === null
+                  ? 'bg-white/5 text-white/20 cursor-not-allowed'
                   : 'bg-amber-600 text-white shadow-[0_0_40px_rgba(245,158,11,0.4)] hover:bg-amber-500 hover:shadow-[0_0_60px_rgba(245,158,11,0.6)] active:scale-95'
               }`}
             >
-              <span className="relative z-10">ANSWER</span>
+              <span className="relative z-10">SHOW ANSWER</span>
               {selectedAnswer !== null && (
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
               )}
@@ -503,7 +630,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
         )}
 
         {/* Progress Dots */}
-        <div className="mt-12 flex justify-center gap-3">
+        <div className="mt-4 md:mt-5 flex justify-center gap-3">
           {filteredQuestions.map((_, idx) => (
            <div 
               key={idx}
@@ -524,6 +651,19 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
           100% { transform: translateX(100%); }
         }
       `}} />
+
+      {expandedImage && (
+        <div className="fixed inset-0 z-[100] bg-black/90 p-4 md:p-10 flex items-center justify-center" onClick={() => setExpandedImage(null)}>
+          <div className="w-full max-w-6xl max-h-full">
+            <img
+              src={expandedImage}
+              alt="Expanded question"
+              className="w-full max-h-[90vh] object-contain rounded-3xl bg-white"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

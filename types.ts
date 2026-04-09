@@ -36,9 +36,9 @@ export type QuestionType = 'MULTIPLE_CHOICE' | 'PICTURE_CHOICE' | 'MEMORY_TEST' 
 export interface QuizQuestion {
   id: string;
   set: string; // A, B, C, etc.
-   type: QuestionType;
+  type: QuestionType;
   question: string;
-   imageUrl?: string;
+  imageUrl?: string;
   memoryWords?: string[];
   options: {
     A: string;
@@ -47,12 +47,16 @@ export interface QuizQuestion {
     D: string;
   };
   correctAnswer: string;// 'A' | 'B' | 'C' | 'D';
+  isActive: boolean;
+  sortOrder?: number;
+  sourceSheet?: string;
 }
 
 export interface QuizSettings {
   timerPerQuestion: number; // in seconds
   isActive: boolean;
   activeSet: string; // The currently active question set (e.g., 'A')
+  enabledSets: string[];
 }
 
 export interface QuizResult {

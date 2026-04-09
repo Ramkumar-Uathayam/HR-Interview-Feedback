@@ -25,7 +25,9 @@ export const LiveResults: React.FC<LiveResultsProps> = ({
 //   });
 
 //   const sortedResults = [...filteredResults].sort((a, b) => b.score - a.score).slice(0, 50);
-  const sortedResults = [...results].sort((a, b) => b.score - a.score);
+  const sortedResults = [...results]
+    .filter(result => result.set === activeSet)
+    .sort((a, b) => b.score - a.score || new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <div className="max-w-4xl mx-auto py-12 px-6">
@@ -57,6 +59,26 @@ export const LiveResults: React.FC<LiveResultsProps> = ({
               Start Quiz
             </button>
           )}
+        </div>
+      </div>
+
+      <div className="mb-8 bg-gradient-to-r from-indigo-50 via-white to-amber-50 border border-slate-200 rounded-[2rem] p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.35em] mb-2">Quiz Status</p>
+          <h3 className="text-xl font-black text-slate-800">
+            {isQuizActive ? `Set ${activeSet} is ready for participants` : 'Quiz is currently inactive'}
+          </h3>
+          <p className="text-sm text-slate-500 font-medium mt-1">
+            {isQuizActive
+              ? 'Choose the set, invite the participant, and start the contest when ready.'
+              : 'Activate the quiz from Quiz Manager to allow participants to join.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 rounded-full ${isQuizActive ? 'bg-green-500' : 'bg-slate-300'}`} />
+          <span className="text-xs font-black uppercase tracking-[0.28em] text-slate-500">
+            {isQuizActive ? 'Live' : 'Paused'}
+          </span>
         </div>
       </div>
 

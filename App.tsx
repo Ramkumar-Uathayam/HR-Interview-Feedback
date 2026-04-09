@@ -35,15 +35,22 @@ const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [feedbacks, setFeedbacks] = useState<InterviewFeedback[]>([]);
   const [submitted, setSubmitted] = useState(false);
+  const defaultQuizSettings: QuizSettings = { timerPerQuestion: 15, isActive: false, activeSet: 'A', enabledSets: [] };
   
   // Quiz State
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
-  const [quizSettings, setQuizSettings] = useState<QuizSettings>({ timerPerQuestion: 15, isActive: false, activeSet: 'A' });
+  const [quizSettings, setQuizSettings] = useState<QuizSettings>(defaultQuizSettings);
   const [quizResults, setQuizResults] = useState<QuizResult[]>([]);
-   const [quizMode, setQuizMode] = useState<'leaderboard' | 'contest'>('leaderboard');
+  const [quizMode, setQuizMode] = useState<'leaderboard' | 'contest'>('leaderboard');
   const [selectedSet, setSelectedSet] = useState('A');
 
-  const availableSets = Array.from(new Set(quizQuestions.map(q => q.set))).sort();
+  const availableSets = Array.from(
+    new Set(
+      quizQuestions
+        .filter(q => q.isActive !== false && (quizSettings.enabledSets.length === 0 || quizSettings.enabledSets.includes(q.set)))
+        .map(q => q.set)
+    )
+  ).sort();
 
  
 
@@ -57,6 +64,48 @@ const App: React.FC = () => {
       }
     } catch (e) {
       console.warn("Could not fetch quiz results from server", e);
+    }
+  };
+
+  const fetchQuizQuestions = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/quiz/questions`);
+      if (!response.ok) {
+        throw new Error('Failed to load quiz questions');
+      }
+
+      const data = await response.json();
+      setQuizQuestions(data);
+      localStorage.setItem('ramraj_quiz_questions', JSON.stringify(data));
+    } catch (e) {
+      console.warn("Could not fetch quiz questions from server, using local cache", e);
+      const savedQuestions = localStorage.getItem('ramraj_quiz_questions');
+      if (savedQuestions) {
+        setQuizQuestions(JSON.parse(savedQuestions));
+      }
+    }
+  };
+
+  const fetchQuizSettings = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/quiz/settings`);
+      if (!response.ok) {
+        throw new Error('Failed to load quiz settings');
+      }
+
+      const data = await response.json();
+      const mergedSettings = { ...defaultQuizSettings, ...data, enabledSets: data.enabledSets || [] };
+      setQuizSettings(mergedSettings);
+      localStorage.setItem('ramraj_quiz_settings', JSON.stringify(mergedSettings));
+      setSelectedSet(mergedSettings.activeSet || 'A');
+    } catch (e) {
+      console.warn("Could not fetch quiz settings from server, using local cache", e);
+      const savedSettings = localStorage.getItem('ramraj_quiz_settings');
+      if (savedSettings) {
+        const parsedSettings = { ...defaultQuizSettings, ...JSON.parse(savedSettings) };
+        setQuizSettings(parsedSettings);
+        setSelectedSet(parsedSettings.activeSet || 'A');
+      }
     }
   };
 
@@ -92,18 +141,26 @@ const App: React.FC = () => {
     const savedResults = localStorage.getItem('ramraj_quiz_results');
     
     if (savedQuestions) setQuizQuestions(JSON.parse(savedQuestions));
-    if (savedSettings) setQuizSettings(JSON.parse(savedSettings));
+    if (savedSettings) setQuizSettings({ ...defaultQuizSettings, ...JSON.parse(savedSettings) });
     if (savedResults) setQuizResults(JSON.parse(savedResults));
 
     fetchData();
+    fetchQuizQuestions();
+    fetchQuizSettings();
     fetchQuizResults();
   }, []);
 
-   useEffect(() => {
+  useEffect(() => {
     if (view === 'quiz' && !quizSettings.isActive) {
       setView('candidate');
     }
   }, [quizSettings.isActive, view]);
+
+  useEffect(() => {
+    if (availableSets.length > 0 && !availableSets.includes(selectedSet)) {
+      setSelectedSet(availableSets[0]);
+    }
+  }, [availableSets, selectedSet]);
 
 
   useEffect(() => {
@@ -165,14 +222,52 @@ const App: React.FC = () => {
     }
   };
 
-  const updateQuizQuestions = (questions: QuizQuestion[]) => {
+  const updateQuizQuestions = async (questions: QuizQuestion[]) => {
     setQuizQuestions(questions);
     localStorage.setItem('ramraj_quiz_questions', JSON.stringify(questions));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/quiz/questions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questions })
+      });
+
+      if (response.status === 404) {
+        console.warn('Quiz question API is not available on the current backend. Keeping localStorage as fallback.');
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to save quiz questions');
+      }
+    } catch (e) {
+      console.error('Quiz question sync error:', e);
+    }
   };
 
-  const updateQuizSettings = (settings: QuizSettings) => {
+  const updateQuizSettings = async (settings: QuizSettings) => {
     setQuizSettings(settings);
     localStorage.setItem('ramraj_quiz_settings', JSON.stringify(settings));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/quiz/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+
+      if (response.status === 404) {
+        console.warn('Quiz settings API is not available on the current backend. Keeping localStorage as fallback.');
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to save quiz settings');
+      }
+    } catch (e) {
+      console.error('Quiz settings sync error:', e);
+    }
   };
 
   const handleLogout = () => {
@@ -307,8 +402,8 @@ const App: React.FC = () => {
             />
           ) : (
             <LiveResults 
-              results={quizResults}
-              availableSets={availableSets.length > 0 ? availableSets : ['A', 'B', 'C']}
+              results={quizResults.filter(result => availableSets.length === 0 || availableSets.includes(result.set))}
+              availableSets={availableSets.length > 0 ? availableSets : ['A']}
               activeSet={selectedSet}
               onSetChange={setSelectedSet}
               onStart={() => setQuizMode('contest')}

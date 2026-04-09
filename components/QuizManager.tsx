@@ -6,8 +6,8 @@ interface QuizManagerProps {
   questions: QuizQuestion[];
   settings: QuizSettings;
   results: QuizResult[];
-  onUpdateQuestions: (questions: QuizQuestion[]) => void;
-  onUpdateSettings: (settings: QuizSettings) => void;
+  onUpdateQuestions: (questions: QuizQuestion[]) => void | Promise<void>;
+  onUpdateSettings: (settings: QuizSettings) => void | Promise<void>;
 }
 
 export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, results, onUpdateQuestions, onUpdateSettings }) => {
@@ -98,13 +98,22 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
             memoryWords,
             options,
             correctAnswer,
+            isActive: true,
+            sortOrder: index,
+            sourceSheet: sheetName,
           };
         });
         
         allNewQuestions.push(...sheetQuestions);
       });
 
-      onUpdateQuestions(allNewQuestions);
+      const nextEnabledSets = Array.from(new Set(allNewQuestions.map(question => question.set))).sort();
+      await onUpdateQuestions(allNewQuestions);
+      await onUpdateSettings({
+        ...settings,
+        activeSet: nextEnabledSets[0] || 'A',
+        enabledSets: nextEnabledSets
+      });
       alert(`Successfully imported ${allNewQuestions.length} questions across ${workbook.SheetNames.length} sets!`);
     } catch (err) {
       console.error(err);
@@ -121,6 +130,19 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
 
   const handleSetActiveSet = (setName: string) => {
     onUpdateSettings({ ...settings, activeSet: setName });
+  };
+
+  const handleToggleSetEnabled = (setName: string) => {
+    const enabledSets = settings.enabledSets.includes(setName)
+      ? settings.enabledSets.filter(set => set !== setName)
+      : [...settings.enabledSets, setName].sort();
+
+    const fallbackSet = enabledSets[0] || settings.activeSet;
+    onUpdateSettings({
+      ...settings,
+      activeSet: enabledSets.includes(settings.activeSet) ? settings.activeSet : fallbackSet,
+      enabledSets
+    });
   };
 
   const toggleQuizActive = () => {
@@ -143,6 +165,7 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
 
   const availableSets = Array.from(new Set(questions.map(q => q.set))).sort();
   const filteredQuestions = questions.filter(q => q.set === settings.activeSet);
+  const activeQuestionCount = filteredQuestions.filter(question => question.isActive !== false).length;
 
   return (
     <div className="max-w-7xl mx-auto py-10 px-6 space-y-8">
@@ -192,6 +215,31 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
             )}
           </select>
         </div>
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 md:col-span-2">
+          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Enabled Sets For Contest</label>
+          <div className="flex flex-wrap gap-3">
+            {availableSets.length === 0 ? (
+              <span className="text-sm text-slate-400 italic">Import questions to enable sets.</span>
+            ) : (
+              availableSets.map(setName => {
+                const enabled = settings.enabledSets.includes(setName);
+                return (
+                  <button
+                    key={setName}
+                    onClick={() => handleToggleSetEnabled(setName)}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                      enabled
+                        ? 'bg-green-100 text-green-700 border border-green-200'
+                        : 'bg-slate-100 text-slate-500 border border-slate-200'
+                    }`}
+                  >
+                    {enabled ? `Set ${setName} Enabled` : `Set ${setName} Disabled`}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
         <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Timer Settings</label>
           <div className="flex items-center gap-4">
@@ -205,8 +253,9 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
           </div>
         </div>
         <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Total Questions</label>
-          <h2 className="text-4xl font-black text-slate-800">{questions.length}</h2>
+          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Questions In Set</label>
+          <h2 className="text-4xl font-black text-slate-800">{filteredQuestions.length}</h2>
+          <p className="text-xs font-bold text-slate-400 mt-2">{activeQuestionCount} active for contest</p>
         </div>
         <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Total Participants</label>
@@ -242,6 +291,11 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
                       }`}>
                         {q.type?.replace('_', ' ')}
                       </span>
+                      <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${
+                        q.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'
+                      }`}>
+                        {q.isActive !== false ? 'ACTIVE' : 'INACTIVE'}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       {editingId === q.id ? (
@@ -265,6 +319,16 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
                       ) : (
                         <span className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-green-50 px-2 py-1 rounded-lg">Correct: {q.correctAnswer}</span>
                       )}
+                      <button 
+                        onClick={() => handleUpdateQuestion(q.id, { isActive: q.isActive === false })}
+                        className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg ${
+                          q.isActive !== false
+                            ? 'text-amber-700 bg-amber-50'
+                            : 'text-green-700 bg-green-50'
+                        }`}
+                      >
+                        {q.isActive !== false ? 'Disable' : 'Enable'}
+                      </button>
                       <button 
                         onClick={() => setEditingId(editingId === q.id ? null : q.id)}
                         className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
@@ -290,8 +354,8 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
                     <p className="font-bold text-slate-800 mb-4">{q.question}</p>
                   )}
                   {q.type === 'PICTURE_CHOICE' && q.imageUrl && (
-                    <div className="mb-4 rounded-xl overflow-hidden border border-slate-200 h-32">
-                      <img src={q.imageUrl} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <div className="mb-4 rounded-xl overflow-hidden border border-slate-200 bg-slate-900/5 min-h-32">
+                      <img src={q.imageUrl} alt="Preview" className="w-full max-h-72 object-contain bg-white" referrerPolicy="no-referrer" />
                     </div>
                   )}
 
