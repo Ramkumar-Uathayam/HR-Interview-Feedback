@@ -24,6 +24,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
   const [timeLeft, setTimeLeft] = useState(settings.timerPerQuestion);
   const [memorizeTimeLeft, setMemorizeTimeLeft] = useState(0);
   const [isMemorizing, setIsMemorizing] = useState(false);
+  const [hasTimerStarted, setHasTimerStarted] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
   const [quizFinished, setQuizFinished] = useState(false);
   const [candidateInfo, setCandidateInfo] = useState({ username: '', mobile: '' });
@@ -44,8 +45,16 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
   );
   const statusMessage = isMemorizing
     ? `Memorize carefully. Answering starts in ${memorizeTimeLeft} seconds.`
+    : !hasTimerStarted
+    ? currentQuestion.type === 'MEMORY_TEST'
+      ? 'Click Start Timer to show the memory words and begin the memorization round.'
+      : 'Click Start Timer when you want this question timer to begin.'
     : isAnswerRevealed
     ? 'Answer revealed. Continue when you are ready.'
+    : timeLeft === 0
+    ? selectedAnswer
+      ? 'Time is over. You can reveal the answer now.'
+      : 'Time is over. Move to the next question or reveal the answer.'
     : currentQuestion.type === 'MULTIPLE_CHOICE'
     ? selectedAnswer
       ? 'Answer selected. Click Show Answer when the host is ready.'
@@ -99,8 +108,9 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
         }, 1000);
       } else if (isMemorizing && memorizeTimeLeft === 0) {
         setIsMemorizing(false);
+        setHasTimerStarted(true);
         setTimeLeft(settings.timerPerQuestion);
-      } else if (!isMemorizing && timeLeft > 0 && !isAnswerRevealed) {
+      } else if (hasTimerStarted && !isMemorizing && timeLeft > 0 && !isAnswerRevealed) {
         timerRef.current = setInterval(() => {
           setTimeLeft((prev) => prev - 1);
         }, 1000);
@@ -110,17 +120,19 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [quizStarted, quizFinished, timeLeft, memorizeTimeLeft, isMemorizing, isAnswerRevealed, currentQuestionIndex, settings.timerPerQuestion]);
+  }, [quizStarted, quizFinished, timeLeft, memorizeTimeLeft, isMemorizing, isAnswerRevealed, currentQuestionIndex, settings.timerPerQuestion, hasTimerStarted]);
 
   useEffect(() => {
-    if (quizStarted && currentQuestion?.type === 'MEMORY_TEST' && !isAnswerRevealed && currentQuestionIndex >= 0) {
-      setIsMemorizing(true);
-      setMemorizeTimeLeft(MEMORY_DISPLAY_SECONDS);
+    if (quizStarted && currentQuestionIndex >= 0) {
+      setIsMemorizing(false);
+      setHasTimerStarted(false);
+      setMemorizeTimeLeft(currentQuestion?.type === 'MEMORY_TEST' ? MEMORY_DISPLAY_SECONDS : 0);
+      setTimeLeft(settings.timerPerQuestion);
     }
-  }, [currentQuestionIndex, quizStarted]);
+  }, [currentQuestionIndex, quizStarted, currentQuestion?.type, settings.timerPerQuestion]);
 
   useEffect(() => {
-    if (!quizStarted || quizFinished || isMemorizing || isAnswerRevealed) {
+    if (!quizStarted || quizFinished || isMemorizing || isAnswerRevealed || !hasTimerStarted) {
       lastWarningSecondRef.current = null;
       return;
     }
@@ -164,9 +176,21 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
   };
 
   const handleAnswerSelect = (answer: 'A' | 'B' | 'C' | 'D') => {
-    if (isAnswerRevealed) return; // Prevent changing answer after reveal
+    if (isAnswerRevealed || !hasTimerStarted || timeLeft === 0) return;
     setSelectedAnswer(answer);
     setSelectedAnswerTimeLeft(timeLeft);
+  };
+
+  const handleStartQuestionTimer = () => {
+    if (hasTimerStarted || isAnswerRevealed) return;
+
+    if (currentQuestion.type === 'MEMORY_TEST') {
+      setIsMemorizing(true);
+      setMemorizeTimeLeft(MEMORY_DISPLAY_SECONDS);
+    } else {
+      setHasTimerStarted(true);
+      setTimeLeft(settings.timerPerQuestion);
+    }
   };
 
   const getBonusPoints = () => {
@@ -227,6 +251,8 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
       setSelectedAnswerTimeLeft(null);
       setIsAnswerRevealed(false); 
       setIsEvaluated(false);
+      setHasTimerStarted(false);
+      setIsMemorizing(false);
       setLastAwardedPoints(0);
       lastWarningSecondRef.current = null;
       setTimeLeft(settings.timerPerQuestion);
@@ -407,6 +433,15 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
                 Selected Answer: {selectedAnswer} | Bonus Ready: +{getBonusPoints()}
               </p>
             )}
+            {!hasTimerStarted && !isMemorizing && (
+              <button
+                type="button"
+                onClick={handleStartQuestionTimer}
+                className="mt-3 px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-2xl uppercase tracking-[0.25em] text-xs transition-all shadow-[0_0_30px_rgba(34,211,238,0.25)]"
+              >
+                Start Timer
+              </button>
+            )}
           </div>
         </div>
         
@@ -453,6 +488,16 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
                       ))}
                     </div>
                   </div>
+                ) : currentQuestion.type === 'MEMORY_TEST' && !hasTimerStarted ? (
+                  <div className="w-full max-w-3xl rounded-[2rem] border border-dashed border-amber-400/40 bg-amber-500/10 px-6 py-10 text-center">
+                    <p className="text-[10px] font-black text-amber-300 uppercase tracking-[0.35em] mb-3">Memory Round</p>
+                    <h4 className="text-lg md:text-2xl font-bold text-white leading-snug">
+                      {currentQuestion.question}
+                    </h4>
+                    <p className="text-sm text-white/70 font-medium mt-4">
+                      The memory words will appear only after you click Start Timer.
+                    </p>
+                  </div>
                 ) : (
                    <>
                     {currentQuestion.type === 'JUMBLED_WORD' && (
@@ -489,7 +534,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
             <button
               key={key}
               onClick={() => handleAnswerSelect(key)}
-              disabled={isAnswerRevealed}
+              disabled={isAnswerRevealed || !hasTimerStarted || timeLeft === 0}
               className={`group relative w-full transition-all duration-300 transform active:scale-[0.97] ${
                 selectedAnswer === key ? 'scale-[1.02]' : ''
               }`}
@@ -590,12 +635,12 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
         {/* Action Buttons (Only for Multiple Choice) */}
         {currentQuestion.type === 'MULTIPLE_CHOICE' && (
         <div className="flex justify-center gap-6">
-          {!isAnswerRevealed ? (
+          {!isAnswerRevealed && !(timeLeft === 0 && selectedAnswer === null && hasTimerStarted) ? (
             <button
               onClick={handleRevealAnswer}
-              disabled={selectedAnswer === null}
+              disabled={selectedAnswer === null || !hasTimerStarted}
               className={`group relative px-12 md:px-20 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden ${
-                selectedAnswer === null
+                selectedAnswer === null || !hasTimerStarted
                   ? 'bg-white/5 text-white/20 cursor-not-allowed'
                   : 'bg-amber-600 text-white shadow-[0_0_40px_rgba(245,158,11,0.4)] hover:bg-amber-500 hover:shadow-[0_0_60px_rgba(245,158,11,0.6)] active:scale-95'
               }`}
@@ -604,6 +649,15 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
               {selectedAnswer !== null && (
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
               )}
+            </button>
+          ) : !isAnswerRevealed ? (
+            <button
+              onClick={handleNextQuestion}
+              className="group relative px-12 md:px-20 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden bg-slate-200 text-slate-900 shadow-[0_0_30px_rgba(255,255,255,0.1)] hover:bg-white active:scale-95"
+            >
+              <span className="relative z-10">
+                {currentQuestionIndex === filteredQuestions.length - 1 ? 'FINISH CONTEST' : 'NEXT QUESTION'}
+              </span>
             </button>
           ) : (
             <button
@@ -616,21 +670,32 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
             </button>
           )}
-        </div>
-         )}
+          </div>
+        )}
 
         {/* Next Button for Binary Choice (Only after evaluation) */}
-        {currentQuestion.type !== 'MULTIPLE_CHOICE' && isAnswerRevealed && (
+        {currentQuestion.type !== 'MULTIPLE_CHOICE' && (isAnswerRevealed || (hasTimerStarted && timeLeft === 0)) && (
           <div className="flex justify-center mt-8">
-            <button
-              onClick={handleNextQuestion}
-              className="group relative px-12 md:px-20 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden bg-indigo-600 text-white shadow-[0_0_40px_rgba(79,70,229,0.4)] hover:bg-indigo-500 hover:shadow-[0_0_60px_rgba(79,70,229,0.6)] active:scale-95"
-            >
-              <span className="relative z-10">
-                {currentQuestionIndex === filteredQuestions.length - 1 ? 'FINISH CONTEST' : 'NEXT QUESTION'}
-              </span>
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
-            </button>
+            <div className="flex gap-4">
+              {!isAnswerRevealed && (
+                <button
+                  onClick={handleRevealAnswer}
+                  disabled={!hasTimerStarted}
+                  className="group relative px-8 md:px-12 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden bg-amber-600 text-white shadow-[0_0_40px_rgba(245,158,11,0.4)] hover:bg-amber-500 active:scale-95"
+                >
+                  <span className="relative z-10">SHOW ANSWER</span>
+                </button>
+              )}
+              <button
+                onClick={handleNextQuestion}
+                className="group relative px-8 md:px-12 py-4 md:py-5 font-black rounded-2xl transition-all duration-500 uppercase tracking-[0.3em] text-sm overflow-hidden bg-indigo-600 text-white shadow-[0_0_40px_rgba(79,70,229,0.4)] hover:bg-indigo-500 hover:shadow-[0_0_60px_rgba(79,70,229,0.6)] active:scale-95"
+              >
+                <span className="relative z-10">
+                  {currentQuestionIndex === filteredQuestions.length - 1 ? 'FINISH CONTEST' : 'NEXT QUESTION'}
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
+              </button>
+            </div>
           </div>
         )}
 
