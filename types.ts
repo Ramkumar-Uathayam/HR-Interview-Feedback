@@ -64,6 +64,7 @@ export interface QuizResult {
   mobileNumber: string;
   score: number;
   totalQuestions: number;
+  maxScore?: number;
   date: string;
   set: string;
 }

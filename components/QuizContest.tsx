@@ -38,6 +38,10 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
   const currentQuestion = filteredQuestions[currentQuestionIndex];
   const progressPercent = ((currentQuestionIndex + 1) / filteredQuestions.length) * 100;
   const regularPointsPerQuestion = 1;
+  const maxPossibleScore = filteredQuestions.reduce(
+    (total, question) => total + (question.type === 'MULTIPLE_CHOICE' ? 3 : regularPointsPerQuestion),
+    0
+  );
   const statusMessage = isMemorizing
     ? `Memorize carefully. Answering starts in ${memorizeTimeLeft} seconds.`
     : isAnswerRevealed
@@ -246,6 +250,7 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
       mobileNumber: candidateInfo.mobile,
       score: finalScore,
       totalQuestions: filteredQuestions.length,
+      maxScore: maxPossibleScore,
       date: new Date().toISOString(),
       set: settings.activeSet,
     };
@@ -314,13 +319,13 @@ export const QuizContest: React.FC<QuizContestProps> = ({ questions, settings, r
       <div className="max-w-md mx-auto py-20 px-6">
         <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-100 text-center">
           <div className="w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
-           <span className="text-3xl font-black text-indigo-600">{finalScore}/{filteredQuestions.length}</span>
+           <span className="text-3xl font-black text-indigo-600">{finalScore}/{maxPossibleScore}</span>
           </div>
           <h2 className="text-3xl font-black text-slate-800 mb-3">Quiz Completed!</h2>
           <p className="text-slate-500 mb-10 font-medium leading-relaxed">Great job! Your score has been recorded. Thank you for participating.</p>
           <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 mb-8">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Your Score</p>
-           <p className="text-4xl font-black text-indigo-600">{Math.round((finalScore / filteredQuestions.length) * 100)}%</p>
+           <p className="text-4xl font-black text-indigo-600">{Math.round((finalScore / maxPossibleScore) * 100)}%</p>
           </div>
            <button
              onClick={onBack}

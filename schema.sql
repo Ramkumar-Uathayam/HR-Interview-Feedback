@@ -87,6 +87,7 @@ BEGIN
         mobile_number CHAR(10) NOT NULL,
         score INT NOT NULL,
         total_questions INT NOT NULL,
+        max_score INT NULL,
         quiz_set NVARCHAR(20) NOT NULL DEFAULT 'A',
         submission_date DATETIME NOT NULL DEFAULT GETDATE()
     );

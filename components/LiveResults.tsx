@@ -28,6 +28,7 @@ export const LiveResults: React.FC<LiveResultsProps> = ({
   const sortedResults = [...results]
     .filter(result => result.set === activeSet)
     .sort((a, b) => b.score - a.score || new Date(b.date).getTime() - new Date(a.date).getTime());
+  const getScoreBase = (result: QuizResult) => result.maxScore || Math.max(result.totalQuestions, result.score);
 
   return (
     <div className="max-w-4xl mx-auto py-12 px-6">
@@ -128,12 +129,12 @@ export const LiveResults: React.FC<LiveResultsProps> = ({
                     </td>
                     <td className="px-8 py-6">
                       <span className="font-black text-xl text-slate-700">{result.score}</span>
-                      <span className="text-slate-400 font-bold text-sm ml-1">/ {result.totalQuestions}</span>
+                      <span className="text-slate-400 font-bold text-sm ml-1">/ {getScoreBase(result)}</span>
                     </td>
                     <td className="px-8 py-6">
                       <div className="inline-flex items-center px-4 py-1.5 bg-indigo-50 rounded-full">
                         <span className="text-indigo-600 font-black text-sm">
-                          {Math.round((result.score / result.totalQuestions) * 100)}%
+                          {Math.round((result.score / getScoreBase(result)) * 100)}%
                         </span>
                       </div>
                     </td>

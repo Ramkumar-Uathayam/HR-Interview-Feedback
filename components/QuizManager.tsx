@@ -13,6 +13,7 @@ interface QuizManagerProps {
 export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, results, onUpdateQuestions, onUpdateSettings }) => {
   const [importLoading, setImportLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const getScoreBase = (result: QuizResult) => result.maxScore || Math.max(result.totalQuestions, result.score);
 
   const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -406,10 +407,10 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ questions, settings, r
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-2">
-                          <span className={`text-sm font-black ${r.score / r.totalQuestions >= 0.7 ? 'text-green-600' : 'text-amber-600'}`}>
-                            {r.score}/{r.totalQuestions}
+                          <span className={`text-sm font-black ${r.score / getScoreBase(r) >= 0.7 ? 'text-green-600' : 'text-amber-600'}`}>
+                            {r.score}/{getScoreBase(r)}
                           </span>
-                          <span className="text-[10px] text-slate-400 font-bold">({Math.round((r.score / r.totalQuestions) * 100)}%)</span>
+                          <span className="text-[10px] text-slate-400 font-bold">({Math.round((r.score / getScoreBase(r)) * 100)}%)</span>
                         </div>
                       </td>
                       <td className="px-8 py-6 text-slate-500 text-xs">{r.date}</td>

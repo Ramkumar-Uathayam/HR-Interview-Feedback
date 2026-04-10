@@ -129,9 +129,15 @@ async function initDb() {
                     mobile_number CHAR(10) NOT NULL,
                     score INT NOT NULL,
                     total_questions INT NOT NULL,
+                    max_score INT NULL,
                     quiz_set NVARCHAR(20) NOT NULL DEFAULT 'A',
                     submission_date DATETIME NOT NULL DEFAULT GETDATE()
                 )
+            END
+
+            IF COL_LENGTH('hrquiz_results', 'max_score') IS NULL
+            BEGIN
+                ALTER TABLE hrquiz_results ADD max_score INT NULL
             END
 
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='hrquiz_questions' AND xtype='U')
@@ -407,6 +413,7 @@ app.get('/api/quiz/results', async (req, res) => {
             mobileNumber: row.mobile_number,
             score: row.score,
             totalQuestions: row.total_questions,
+            maxScore: row.max_score || undefined,
             set: row.quiz_set || 'A',
             date: row.submission_date instanceof Date ? row.submission_date.toISOString() : new Date(row.submission_date).toISOString()
         }));
@@ -430,10 +437,11 @@ app.post('/api/quiz/results', async (req, res) => {
             .input('mobile_number', sql.Char(10), result.mobileNumber)
             .input('score', sql.Int, result.score)
             .input('total_questions', sql.Int, result.totalQuestions)
+            .input('max_score', sql.Int, result.maxScore || null)
             .input('quiz_set', sql.NVarChar(20), result.set || 'A')
             .query(`
-                INSERT INTO hrquiz_results (username, mobile_number, score, total_questions, quiz_set)
-                VALUES (@username, @mobile_number, @score, @total_questions, @quiz_set)
+                INSERT INTO hrquiz_results (username, mobile_number, score, total_questions, max_score, quiz_set)
+                VALUES (@username, @mobile_number, @score, @total_questions, @max_score, @quiz_set)
             `);
 
         res.status(201).json({ success: true });
