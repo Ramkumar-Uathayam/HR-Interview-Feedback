@@ -5,6 +5,7 @@ export interface InterviewFeedback {
   mobileNumber: string;
   designation: string;
   department: string;
+  branch: string;
   address: string;
   date: string;
   ratings: {

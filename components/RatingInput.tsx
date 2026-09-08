@@ -6,11 +6,14 @@ interface RatingInputProps {
   onChange: (val: number) => void;
   labelEn: string;
   labelTa: string;
+  error?: boolean;
 }
 
-export const RatingInput: React.FC<RatingInputProps> = ({ value, onChange, labelEn, labelTa }) => {
+export const RatingInput: React.FC<RatingInputProps> = ({ value, onChange, labelEn, labelTa, error }) => {
   return (
-    <div className="mb-8 p-6 bg-white rounded-xl shadow-sm border border-slate-100 transition-all hover:shadow-md">
+    <div className={`mb-8 p-6 bg-white rounded-xl shadow-sm border transition-all hover:shadow-md ${
+      error ? 'border-red-400' : 'border-slate-100'
+    }`}>
       <div className="mb-4">
         <p className="text-lg font-semibold text-slate-800">{labelEn}</p>
         <p className="text-sm text-slate-500 font-medium mt-1">{labelTa}</p>
@@ -31,6 +34,11 @@ export const RatingInput: React.FC<RatingInputProps> = ({ value, onChange, label
           </button>
         ))}
       </div>
+      {error && (
+        <p className="mt-3 text-xs text-red-600 font-bold animate-shake">
+          Please select a rating / மதிப்பீட்டைத் தேர்ந்தெடுக்கவும்
+        </p>
+      )}
     </div>
   );
 };

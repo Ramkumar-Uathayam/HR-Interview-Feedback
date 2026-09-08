@@ -51,6 +51,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ feedbacks }) => 
         'Mobile Number': f.mobileNumber,
         'Designation': f.designation,
         'Department': f.department,
+        'Interview Location': f.branch,
         'Address': f.address,
         'Date': f.date,
         'Referral': f.referral ? 'Yes' : 'No',
@@ -173,7 +174,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ feedbacks }) => 
                     <td className="px-8 py-6">
                       <div className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{f.candidateName}</div>
                       <div className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                        {f.designation} • {f.department}
+                        {f.designation} • {f.department} • {f.branch}
                       </div>
                     </td>
                     <td className="px-8 py-6 text-slate-500 text-sm">{f.date}</td>
@@ -214,7 +215,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ feedbacks }) => 
             
             <div className="p-8 overflow-y-auto">
               {/* Detailed Role Card */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Applied Level</label>
                   <p className="text-slate-800 font-black">{selectedFeedback.designation}</p>
@@ -222,6 +223,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ feedbacks }) => 
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Applied Department</label>
                   <p className="text-slate-800 font-black">{selectedFeedback.department}</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Interview Location</label>
+                  <p className="text-slate-800 font-black">{selectedFeedback.branch}</p>
                 </div>
               </div>
 

@@ -103,6 +103,7 @@ async function initDb() {
                     mobile_number CHAR(10),
                     designation NVARCHAR(100),
                     department NVARCHAR(100),
+                    branch NVARCHAR(100),
                     address NVARCHAR(MAX),
                     submission_date NVARCHAR(20),
                     q1_clarity INT,
@@ -119,6 +120,11 @@ async function initDb() {
                     qualitative NVARCHAR(MAX),
                     created_at DATETIME DEFAULT GETDATE()
                 )
+            END
+
+            IF COL_LENGTH('hrfeedbacks', 'branch') IS NULL
+            BEGIN
+                ALTER TABLE hrfeedbacks ADD branch NVARCHAR(100) NULL
             END
 
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='hrquiz_results' AND xtype='U')
@@ -200,6 +206,7 @@ app.get('/api/feedback', async (req, res) => {
             mobileNumber: row.mobile_number,
             designation: row.designation,
             department: row.department,
+            branch: row.branch,
             address: row.address,
             date: row.submission_date,
             ratings: {
@@ -238,6 +245,7 @@ app.post('/api/feedback', async (req, res) => {
             .input('mobile_number', sql.Char(10), feedback.mobileNumber)
             .input('designation', sql.NVarChar(100), feedback.designation)
             .input('department', sql.NVarChar(100), feedback.department)
+            .input('branch', sql.NVarChar(100), feedback.branch)
             .input('address', sql.NVarChar(sql.MAX), feedback.address)
             .input('submission_date', sql.NVarChar(20), feedback.date)
             .input('q1', sql.Int, feedback.ratings.q1_clarity)
@@ -254,13 +262,13 @@ app.post('/api/feedback', async (req, res) => {
             .input('qualitative', sql.NVarChar(sql.MAX), feedback.qualitative)
             .query(`
                 INSERT INTO hrfeedbacks (
-                    id, candidate_name, mobile_number, designation, department, address, submission_date,
+                    id, candidate_name, mobile_number, designation, department, branch, address, submission_date,
                     q1_clarity, q2_communication, q3_expectations, q4_ambience, q5_alignment,
                     q6_professionalism, q7_waiting_period, q8_opportunity, q9_transparency,
                     q10_overall, referral, qualitative
                 )
                 VALUES (
-                    @id, @candidate_name, @mobile_number, @designation, @department, @address, @submission_date,
+                    @id, @candidate_name, @mobile_number, @designation, @department, @branch, @address, @submission_date,
                     @q1, @q2, @q3, @q4, @q5, @q6, @q7, @q8, @q9, @q10, @referral, @qualitative
                 )
             `);

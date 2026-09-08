@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { QUESTIONS, DESIGNATIONS, DEPARTMENTS, BRAND_LOGO_URL } from '../constants.ts';
+import { QUESTIONS, DESIGNATIONS, DEPARTMENTS, BRANCHES, BRAND_LOGO_URL } from '../constants.ts';
 import { RatingInput } from './RatingInput.tsx';
 import { InterviewFeedback } from '../types.ts';
 
@@ -13,6 +13,7 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
   const [mobileNumber, setMobileNumber] = useState('');
   const [designation, setDesignation] = useState('');
   const [department, setDepartment] = useState('');
+  const [branch, setBranch] = useState('');
   const [address, setAddress] = useState('');
   const [ratings, setRatings] = useState<Record<string, number>>(
     QUESTIONS.reduce((acc, q) => ({ ...acc, [q.id]: 0 }), {})
@@ -21,6 +22,7 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
   const [qualitative, setQualitative] = useState('');
   const [touchedMobile, setTouchedMobile] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
 
   const handleRatingChange = (id: string, val: number) => {
     setRatings(prev => ({ ...prev, [id]: val }));
@@ -31,9 +33,10 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
   const isFormValid = 
     candidateName.trim() !== '' && 
     isMobileValid && 
-    designation !== '' && 
-    department !== '' && 
-    address.trim() !== '' && 
+    designation !== '' &&
+    department !== '' &&
+    branch !== '' &&
+    address.trim() !== '' &&
     (Object.values(ratings) as number[]).every(v => v > 0) && 
     referral !== null &&
     !isSubmitting;
@@ -45,6 +48,7 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAttemptedSubmit(true);
     if (!isFormValid || isSubmitting) return;
 
     setIsSubmitting(true);
@@ -54,6 +58,7 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
         mobileNumber,
         designation,
         department,
+        branch,
         address,
         ratings: ratings as any,
         referral: referral!,
@@ -80,6 +85,11 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {attemptedSubmit && !isFormValid && !isSubmitting && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm font-bold animate-shake">
+            Please fill in all required fields highlighted below before submitting. / தேவையான அனைத்து புலங்களையும் நிரப்பவும்.
+          </div>
+        )}
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-100">
           <div className="p-6">
             <label className="block text-sm font-semibold text-slate-700 mb-2">Candidate Name / விண்ணப்பதாரர் பெயர்</label>
@@ -87,11 +97,20 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
               type="text"
               required
               disabled={isSubmitting}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none transition-all disabled:opacity-50"
+              className={`w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:outline-none transition-all disabled:opacity-50 ${
+                attemptedSubmit && candidateName.trim() === ''
+                  ? 'border-red-500 focus:ring-red-200'
+                  : 'border-slate-200 focus:ring-green-500'
+              }`}
               value={candidateName}
               onChange={e => setCandidateName(e.target.value)}
               placeholder="e.g. Arun Kumar"
             />
+            {attemptedSubmit && candidateName.trim() === '' && (
+              <p className="mt-2 text-xs text-red-600 font-bold animate-shake">
+                Candidate name is required / பெயர் தேவை
+              </p>
+            )}
           </div>
 
           <div className="p-6">
@@ -108,7 +127,7 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
               disabled={isSubmitting}
               onBlur={() => setTouchedMobile(true)}
               className={`w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:outline-none transition-all disabled:opacity-50 ${
-                touchedMobile && !isMobileValid && mobileNumber.length > 0
+                (touchedMobile || attemptedSubmit) && !isMobileValid
                   ? 'border-red-500 focus:ring-red-200'
                   : 'border-slate-200 focus:ring-green-500'
               }`}
@@ -116,9 +135,11 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
               onChange={handleMobileChange}
               placeholder="10-digit mobile number"
             />
-            {touchedMobile && !isMobileValid && mobileNumber.length > 0 && (
+            {(touchedMobile || attemptedSubmit) && !isMobileValid && (
               <p className="mt-2 text-xs text-red-600 font-bold animate-shake">
-                Please enter a valid 10-digit mobile number / தயவுசெய்து 10 இலக்க எண்ணை உள்ளிடவும்
+                {mobileNumber.length === 0
+                  ? 'Mobile number is required / கைபேசி எண் தேவை'
+                  : 'Please enter a valid 10-digit mobile number / தயவுசெய்து 10 இலக்க எண்ணை உள்ளிடவும்'}
               </p>
             )}
           </div>
@@ -129,13 +150,22 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
               <select
                 required
                 disabled={isSubmitting}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none transition-all appearance-none cursor-pointer disabled:opacity-50"
+                className={`w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 ${
+                  attemptedSubmit && designation === ''
+                    ? 'border-red-500 focus:ring-red-200'
+                    : 'border-slate-200 focus:ring-green-500'
+                }`}
                 value={designation}
                 onChange={e => setDesignation(e.target.value)}
               >
                 <option value="">Select Designation</option>
                 {DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
+              {attemptedSubmit && designation === '' && (
+                <p className="mt-2 text-xs text-red-600 font-bold animate-shake">
+                  Designation is required / பதவி தேவை
+                </p>
+              )}
             </div>
 
             <div className="p-6">
@@ -143,14 +173,46 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
               <select
                 required
                 disabled={isSubmitting}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none transition-all appearance-none cursor-pointer disabled:opacity-50"
+                className={`w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 ${
+                  attemptedSubmit && department === ''
+                    ? 'border-red-500 focus:ring-red-200'
+                    : 'border-slate-200 focus:ring-green-500'
+                }`}
                 value={department}
                 onChange={e => setDepartment(e.target.value)}
               >
                 <option value="">Select Department</option>
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
+              {attemptedSubmit && department === '' && (
+                <p className="mt-2 text-xs text-red-600 font-bold animate-shake">
+                  Department is required / துறை தேவை
+                </p>
+              )}
             </div>
+          </div>
+
+          <div className="p-6 border-t border-slate-100">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Interview Location</label>
+            <select
+              required
+              disabled={isSubmitting}
+              className={`w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 ${
+                attemptedSubmit && branch === ''
+                  ? 'border-red-500 focus:ring-red-200'
+                  : 'border-slate-200 focus:ring-green-500'
+              }`}
+              value={branch}
+              onChange={e => setBranch(e.target.value)}
+            >
+              <option value="">Select Interview Location</option>
+              {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+            {attemptedSubmit && branch === '' && (
+              <p className="mt-2 text-xs text-red-600 font-bold animate-shake">
+                Interview location is required
+              </p>
+            )}
           </div>
 
           <div className="p-6">
@@ -159,11 +221,20 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
               required
               rows={2}
               disabled={isSubmitting}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none transition-all disabled:opacity-50"
+              className={`w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:outline-none transition-all disabled:opacity-50 ${
+                attemptedSubmit && address.trim() === ''
+                  ? 'border-red-500 focus:ring-red-200'
+                  : 'border-slate-200 focus:ring-green-500'
+              }`}
               value={address}
               onChange={e => setAddress(e.target.value)}
               placeholder="Enter your current location"
             />
+            {attemptedSubmit && address.trim() === '' && (
+              <p className="mt-2 text-xs text-red-600 font-bold animate-shake">
+                Address is required / முகவரி தேவை
+              </p>
+            )}
           </div>
         </div>
 
@@ -176,11 +247,14 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
               onChange={(val) => !isSubmitting && handleRatingChange(q.id, val)}
               labelEn={q.en}
               labelTa={q.ta}
+              error={attemptedSubmit && !ratings[q.id]}
             />
           ))}
         </div>
 
-        <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-100 mb-8">
+        <div className={`p-6 bg-white rounded-xl shadow-sm border mb-8 ${
+          attemptedSubmit && referral === null ? 'border-red-400' : 'border-slate-100'
+        }`}>
           <p className="text-lg font-semibold text-slate-800 mb-1">
             Will you refer B and B Textile as a preferred employer to your known circle?
           </p>
@@ -209,6 +283,11 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
               No | இல்லை
             </button>
           </div>
+          {attemptedSubmit && referral === null && (
+            <p className="mt-3 text-xs text-red-600 font-bold animate-shake">
+              Please select Yes or No / ஆம் அல்லது இல்லை என்பதைத் தேர்ந்தெடுக்கவும்
+            </p>
+          )}
         </div>
 
         <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-100 mb-8">
@@ -230,9 +309,9 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({ onSubmit }) => {
 
         <button
           type="submit"
-          disabled={!isFormValid || isSubmitting}
+          disabled={isSubmitting}
           className={`w-full py-5 rounded-xl text-lg font-black transition-all shadow-xl uppercase tracking-widest flex items-center justify-center gap-3 ${
-            isFormValid && !isSubmitting ? 'bg-green-700 hover:bg-green-800 text-white scale-100 active:scale-95' : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+            (isFormValid || !attemptedSubmit) && !isSubmitting ? 'bg-green-700 hover:bg-green-800 text-white scale-100 active:scale-95' : 'bg-red-600 hover:bg-red-700 text-white scale-100 active:scale-95'
           }`}
         >
           {isSubmitting ? (

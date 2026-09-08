@@ -10,6 +10,7 @@ BEGIN
         mobile_number CHAR(10) NOT NULL,
         designation NVARCHAR(100) NOT NULL,
         department NVARCHAR(100) NOT NULL,
+        branch NVARCHAR(100) NOT NULL,
         address NVARCHAR(MAX),
         submission_date NVARCHAR(20),
         
@@ -36,6 +37,7 @@ BEGIN
     -- Indices for faster HR reporting
     CREATE INDEX idx_department ON feedbacks(department);
     CREATE INDEX idx_designation ON feedbacks(designation);
+    CREATE INDEX idx_branch ON feedbacks(branch);
     CREATE INDEX idx_date ON feedbacks(submission_date);
 END
 
