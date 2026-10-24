@@ -195,6 +195,374 @@ async function initDb() {
 
 initDb();
 
+// ---------- Stall QR printing (tables live in a separate database, default BBLive) ----------
+const STALL_DB = process.env.STALL_DB || 'BBLive';
+if (!/^[A-Za-z0-9_]+$/.test(STALL_DB)) {
+    throw new Error(`Invalid STALL_DB name: ${STALL_DB}`);
+}
+const STALL_EMP = `[${STALL_DB}].[dbo].[StallEmployeeMaster]`;
+const STALL_ADDR = `[${STALL_DB}].[dbo].[StallCompanyAddress]`;
+const STALL_LOG = `[${STALL_DB}].[dbo].[StallPrintLog]`;
+const STALL_SETTINGS = `[${STALL_DB}].[dbo].[StallSettings]`;
+const DEFAULT_STALL_AMOUNT = '5000.00';
+const STALL_CODE_PATTERN = /^[A-Z0-9]{3}-[A-Z0-9]+$/;
+
+// Accepts "E2502217", "e25-02217", " E25-02217 " -> "E25-02217"
+function normalizeEmpCode(raw) {
+    let code = String(raw ?? '').replace(/\s+/g, '').toUpperCase();
+    if (code && !code.includes('-') && code.length > 3) {
+        code = `${code.slice(0, 3)}-${code.slice(3)}`;
+    }
+    return code;
+}
+
+const cleanText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+function mapStallRow(row) {
+    return {
+        empCode: row.EmpCode,
+        empName: row.EmpName,
+        company: row.Company,
+        department: row.Department,
+        isPrinted: row.IsPrintedFlag === 1,
+        printDateTime: row.PrintDateTime || null,
+        printDay: row.PrintDay || null,
+        address: row.Address || null,
+        reprintCount: row.ReprintCount || 0
+    };
+}
+
+const STALL_SELECT = `
+    SELECT
+        LTRIM(RTRIM(E.EmpCode)) AS EmpCode,
+        LTRIM(RTRIM(E.EmpName)) AS EmpName,
+        LTRIM(RTRIM(E.Company)) AS Company,
+        LTRIM(RTRIM(E.Department)) AS Department,
+        CASE WHEN LTRIM(RTRIM(ISNULL(E.IsPrinted, ''))) = 'Y' THEN 1 ELSE 0 END AS IsPrintedFlag,
+        CONVERT(VARCHAR(19), E.PrintDate, 120) AS PrintDateTime,
+        CONVERT(VARCHAR(10), E.PrintDate, 105) AS PrintDay,
+        A.Address,
+        (SELECT COUNT(*) FROM ${STALL_LOG} AS L
+          WHERE L.EmpCode = LTRIM(RTRIM(E.EmpCode)) AND L.PrintType = 'REPRINT'
+            AND E.PrintDate IS NOT NULL AND L.PrintedAt >= E.PrintDate) AS ReprintCount
+    FROM ${STALL_EMP} AS E
+    LEFT JOIN ${STALL_ADDR} AS A ON A.Company = LTRIM(RTRIM(E.Company))
+`;
+
+async function fetchStallEmployee(pool, empCode) {
+    const result = await pool.request()
+        .input('code', sql.NVarChar(50), empCode)
+        .query(`${STALL_SELECT} WHERE LTRIM(RTRIM(E.EmpCode)) = @code`);
+    return result.recordset[0] ? mapStallRow(result.recordset[0]) : null;
+}
+
+async function getStallAmount(pool) {
+    const result = await pool.request()
+        .query(`SELECT SettingValue FROM ${STALL_SETTINGS} WHERE SettingKey = 'Amount'`);
+    return result.recordset[0]?.SettingValue || DEFAULT_STALL_AMOUNT;
+}
+
+async function initStallDb() {
+    try {
+        const pool = await getPool();
+        await pool.request().batch(`
+            IF OBJECT_ID('${STALL_ADDR}', 'U') IS NULL
+            BEGIN
+                CREATE TABLE ${STALL_ADDR} (
+                    Company NVARCHAR(200) NOT NULL PRIMARY KEY,
+                    Address NVARCHAR(MAX) NOT NULL,
+                    UpdatedAt DATETIME NOT NULL DEFAULT GETDATE()
+                )
+            END
+
+            IF OBJECT_ID('${STALL_LOG}', 'U') IS NULL
+            BEGIN
+                CREATE TABLE ${STALL_LOG} (
+                    Id INT IDENTITY(1,1) PRIMARY KEY,
+                    EmpCode NVARCHAR(50) NOT NULL,
+                    EmpName NVARCHAR(200) NULL,
+                    Company NVARCHAR(200) NULL,
+                    PrintType NVARCHAR(10) NOT NULL,
+                    Amount NVARCHAR(20) NULL,
+                    PrintedAt DATETIME NOT NULL DEFAULT GETDATE()
+                )
+                CREATE INDEX IX_StallPrintLog_EmpCode ON ${STALL_LOG} (EmpCode, PrintedAt)
+            END
+
+            IF OBJECT_ID('${STALL_SETTINGS}', 'U') IS NULL
+            BEGIN
+                CREATE TABLE ${STALL_SETTINGS} (
+                    SettingKey NVARCHAR(50) NOT NULL PRIMARY KEY,
+                    SettingValue NVARCHAR(200) NOT NULL,
+                    UpdatedAt DATETIME NOT NULL DEFAULT GETDATE()
+                )
+                INSERT INTO ${STALL_SETTINGS} (SettingKey, SettingValue) VALUES ('Amount', '${DEFAULT_STALL_AMOUNT}')
+            END
+        `);
+        console.log(`Stall tables ready in ${STALL_DB}`);
+    } catch (err) {
+        console.warn(`Stall table setup in ${STALL_DB} failed:`, err.message);
+    }
+}
+
+initStallDb();
+
+app.get('/api/stall/employees', async (req, res) => {
+    try {
+        const pool = await getPool();
+        const result = await pool.request().query(`${STALL_SELECT} ORDER BY E.EmpCode`);
+        res.json(result.recordset.map(mapStallRow));
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to load stall employees', details: err.message });
+    }
+});
+
+// First print marks the employee printed atomically; a second scan returns 409 so the
+// UI can offer an explicit reprint, which is logged and flagged "REPRINT" on the slip.
+app.post('/api/stall/print', async (req, res) => {
+    const empCode = normalizeEmpCode(req.body?.empCode);
+    const reprint = req.body?.reprint === true;
+    if (!empCode) {
+        return res.status(400).json({ error: 'Employee code is required' });
+    }
+
+    try {
+        const pool = await getPool();
+
+        if (!reprint) {
+            const updated = await pool.request()
+                .input('code', sql.NVarChar(50), empCode)
+                .query(`
+                    DECLARE @Printed TABLE (EmpCode NVARCHAR(50));
+
+                    UPDATE T0
+                    SET IsPrinted = 'Y', PrintDate = GETDATE()
+                    OUTPUT inserted.EmpCode INTO @Printed
+                    FROM ${STALL_EMP} AS T0 WITH (UPDLOCK, ROWLOCK)
+                    WHERE LTRIM(RTRIM(T0.EmpCode)) = @code
+                      AND ISNULL(NULLIF(LTRIM(RTRIM(T0.IsPrinted)), ''), 'N') <> 'Y';
+
+                    SELECT EmpCode FROM @Printed;
+                `);
+
+            if (updated.recordset.length === 0) {
+                const existing = await fetchStallEmployee(pool, empCode);
+                if (!existing) {
+                    return res.status(404).json({ error: 'NOT_FOUND', empCode });
+                }
+                return res.status(409).json({ error: 'ALREADY_PRINTED', employee: existing });
+            }
+        }
+
+        const employee = await fetchStallEmployee(pool, empCode);
+        if (!employee) {
+            return res.status(404).json({ error: 'NOT_FOUND', empCode });
+        }
+        if (reprint && !employee.isPrinted) {
+            return res.status(409).json({ error: 'NOT_PRINTED_YET', employee });
+        }
+
+        // A reprint keeps the amount of the original print so the QR content is identical.
+        let amount = null;
+        if (reprint) {
+            const original = await pool.request()
+                .input('code', sql.NVarChar(50), employee.empCode)
+                .query(`
+                    SELECT TOP 1 L.Amount
+                    FROM ${STALL_LOG} AS L
+                    JOIN ${STALL_EMP} AS E ON LTRIM(RTRIM(E.EmpCode)) = L.EmpCode
+                    WHERE L.EmpCode = @code AND L.PrintType = 'ORIGINAL' AND L.PrintedAt >= E.PrintDate
+                    ORDER BY L.PrintedAt DESC
+                `);
+            amount = original.recordset[0]?.Amount || null;
+        }
+        if (!amount) {
+            amount = await getStallAmount(pool);
+        }
+
+        await pool.request()
+            .input('code', sql.NVarChar(50), employee.empCode)
+            .input('name', sql.NVarChar(200), employee.empName)
+            .input('company', sql.NVarChar(200), employee.company)
+            .input('type', sql.NVarChar(10), reprint ? 'REPRINT' : 'ORIGINAL')
+            .input('amount', sql.NVarChar(20), amount)
+            .query(`INSERT INTO ${STALL_LOG} (EmpCode, EmpName, Company, PrintType, Amount) VALUES (@code, @name, @company, @type, @amount)`);
+
+        const reprintCount = reprint ? employee.reprintCount + 1 : employee.reprintCount;
+        res.json({ ...employee, reprintCount, isReprint: reprint, amount });
+    } catch (err) {
+        console.error('Stall print error:', err.message);
+        res.status(500).json({ error: 'Print failed', details: err.message });
+    }
+});
+
+// Replaces all employees in one transaction: old data stays if anything fails.
+app.post('/api/stall/import', async (req, res) => {
+    const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+    if (!rawRows || rawRows.length === 0) {
+        return res.status(400).json({ error: 'No rows to import' });
+    }
+
+    const rows = rawRows.map(r => ({
+        empCode: normalizeEmpCode(r.empCode),
+        empName: cleanText(r.empName),
+        company: cleanText(r.company),
+        department: cleanText(r.department)
+    }));
+
+    const errors = [];
+    const seen = new Set();
+    rows.forEach((r, i) => {
+        if (!r.empCode || !r.empName || !r.company || !r.department) errors.push(`Row ${i + 1}: missing value`);
+        else if (!STALL_CODE_PATTERN.test(r.empCode)) errors.push(`Row ${i + 1}: invalid EmpCode ${r.empCode}`);
+        else if (seen.has(r.empCode)) errors.push(`Row ${i + 1}: duplicate EmpCode ${r.empCode}`);
+        seen.add(r.empCode);
+    });
+    if (errors.length > 0) {
+        return res.status(400).json({ error: 'Validation failed', details: errors.slice(0, 50).join('; ') });
+    }
+
+    let transaction;
+    try {
+        const pool = await getPool();
+        transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        const deleted = await new sql.Request(transaction).query(`DELETE FROM ${STALL_EMP}`);
+
+        const CHUNK = 200; // 4 params per row, stays under SQL Server's 2100-parameter limit
+        for (let start = 0; start < rows.length; start += CHUNK) {
+            const chunk = rows.slice(start, start + CHUNK);
+            const request = new sql.Request(transaction);
+            const values = chunk.map((r, i) => {
+                request.input(`c${i}`, sql.NVarChar(50), r.empCode);
+                request.input(`n${i}`, sql.NVarChar(200), r.empName);
+                request.input(`m${i}`, sql.NVarChar(200), r.company);
+                request.input(`d${i}`, sql.NVarChar(200), r.department);
+                return `(@c${i}, @n${i}, @m${i}, @d${i}, NULL, NULL)`;
+            });
+            await request.query(`
+                INSERT INTO ${STALL_EMP} (EmpCode, EmpName, Company, Department, IsPrinted, PrintDate)
+                VALUES ${values.join(', ')}
+            `);
+        }
+
+        await transaction.commit();
+        res.json({ success: true, deleted: deleted.rowsAffected[0] || 0, imported: rows.length });
+    } catch (err) {
+        if (transaction) {
+            await transaction.rollback();
+        }
+        res.status(500).json({ error: 'Import failed', details: err.message });
+    }
+});
+
+app.get('/api/stall/settings', async (req, res) => {
+    try {
+        const pool = await getPool();
+        res.json({ amount: await getStallAmount(pool) });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to load stall settings', details: err.message });
+    }
+});
+
+app.put('/api/stall/settings', async (req, res) => {
+    const amountNumber = Number(String(req.body?.amount ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+        return res.status(400).json({ error: 'Amount must be a positive number' });
+    }
+    const amount = amountNumber.toFixed(2);
+
+    try {
+        const pool = await getPool();
+        await pool.request()
+            .input('amount', sql.NVarChar(200), amount)
+            .query(`
+                MERGE ${STALL_SETTINGS} AS target
+                USING (SELECT 'Amount' AS SettingKey) AS source
+                ON target.SettingKey = source.SettingKey
+                WHEN MATCHED THEN
+                    UPDATE SET SettingValue = @amount, UpdatedAt = GETDATE()
+                WHEN NOT MATCHED THEN
+                    INSERT (SettingKey, SettingValue, UpdatedAt) VALUES ('Amount', @amount, GETDATE());
+            `);
+        res.json({ success: true, amount });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to save stall settings', details: err.message });
+    }
+});
+
+app.get('/api/stall/addresses', async (req, res) => {
+    try {
+        const pool = await getPool();
+        const result = await pool.request().query(`
+            SELECT C.Company, A.Address, ISNULL(E.EmployeeCount, 0) AS EmployeeCount
+            FROM (
+                SELECT DISTINCT LTRIM(RTRIM(Company)) AS Company FROM ${STALL_EMP} WHERE ISNULL(LTRIM(RTRIM(Company)), '') <> ''
+                UNION
+                SELECT Company FROM ${STALL_ADDR}
+            ) AS C
+            LEFT JOIN ${STALL_ADDR} AS A ON A.Company = C.Company
+            LEFT JOIN (
+                SELECT LTRIM(RTRIM(Company)) AS Company, COUNT(*) AS EmployeeCount
+                FROM ${STALL_EMP} GROUP BY LTRIM(RTRIM(Company))
+            ) AS E ON E.Company = C.Company
+            ORDER BY C.Company
+        `);
+        res.json(result.recordset.map(row => ({
+            company: row.Company,
+            address: row.Address || '',
+            employeeCount: row.EmployeeCount
+        })));
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to load addresses', details: err.message });
+    }
+});
+
+app.put('/api/stall/addresses', async (req, res) => {
+    const company = cleanText(req.body?.company);
+    const address = String(req.body?.address ?? '').trim();
+    if (!company || !address) {
+        return res.status(400).json({ error: 'Company and address are required' });
+    }
+
+    try {
+        const pool = await getPool();
+        await pool.request()
+            .input('company', sql.NVarChar(200), company)
+            .input('address', sql.NVarChar(sql.MAX), address)
+            .query(`
+                MERGE ${STALL_ADDR} AS target
+                USING (SELECT @company AS Company) AS source
+                ON target.Company = source.Company
+                WHEN MATCHED THEN
+                    UPDATE SET Address = @address, UpdatedAt = GETDATE()
+                WHEN NOT MATCHED THEN
+                    INSERT (Company, Address, UpdatedAt) VALUES (@company, @address, GETDATE());
+            `);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to save address', details: err.message });
+    }
+});
+
+app.delete('/api/stall/addresses', async (req, res) => {
+    const company = cleanText(req.query.company);
+    if (!company) {
+        return res.status(400).json({ error: 'Company is required' });
+    }
+
+    try {
+        const pool = await getPool();
+        await pool.request()
+            .input('company', sql.NVarChar(200), company)
+            .query(`DELETE FROM ${STALL_ADDR} WHERE Company = @company`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete address', details: err.message });
+    }
+});
+
 app.get('/api/feedback', async (req, res) => {
     try {
         const pool = await getPool();

@@ -60,6 +60,36 @@ export interface QuizSettings {
   enabledSets: string[];
 }
 
+export interface StallEmployee {
+  empCode: string;
+  empName: string;
+  company: string;
+  department: string;
+  isPrinted: boolean;
+  printDateTime: string | null; // yyyy-mm-dd hh:mi:ss
+  printDay: string | null;      // dd-mm-yyyy, used in QR data
+  address: string | null;
+  reprintCount: number;
+}
+
+export interface StallPrintSlip extends StallEmployee {
+  isReprint: boolean;
+  amount: string;
+}
+
+export interface StallCompanyAddress {
+  company: string;
+  address: string;
+  employeeCount: number;
+}
+
+export interface StallImportRow {
+  empCode: string;
+  empName: string;
+  company: string;
+  department: string;
+}
+
 export interface QuizResult {
   username: string;
   mobileNumber: string;

@@ -7,10 +7,11 @@ import { QRDisplay } from './components/QRDisplay.tsx';
 import { QuizContest } from './components/QuizContest.tsx';
 import { QuizManager } from './components/QuizManager.tsx';
 import { LiveResults } from './components/LiveResults.tsx';
+import { StallManager } from './components/StallManager.tsx';
 import { InterviewFeedback, QuizQuestion, QuizSettings, QuizResult } from './types.ts';
 import { BRAND_LOGO_URL, API_BASE_URL } from './constants.ts';
 
-type View = 'candidate' | 'admin' | 'qr' | 'login' | 'quiz' | 'quiz-admin';
+type View = 'candidate' | 'admin' | 'qr' | 'login' | 'quiz' | 'quiz-admin' | 'stall';
 
 // Robust UUID generator that works in insecure contexts (HTTP)
 const generateUUID = (): string => {
@@ -164,7 +165,7 @@ const App: React.FC = () => {
 
 
   useEffect(() => {
-    if ((view === 'admin' || view === 'quiz-admin') && !isLoggedIn) {
+    if ((view === 'admin' || view === 'quiz-admin' || view === 'stall') && !isLoggedIn) {
       setView('login');
     }
   }, [view, isLoggedIn]);
@@ -359,6 +360,14 @@ const App: React.FC = () => {
                   >
                     Quiz Manager
                   </button>
+                  <button
+                    onClick={() => setView('stall')}
+                    className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${
+                      view === 'stall' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    Stall QR
+                  </button>
                 </div>
                 <div className="flex flex-col items-end hidden sm:flex">
                   <span className="text-xs font-black text-slate-800">HR ADMIN</span>
@@ -414,6 +423,7 @@ const App: React.FC = () => {
         {view === 'qr' && <QRDisplay />}
         {view === 'login' && <LoginForm onLogin={() => { setIsLoggedIn(true); setView('admin'); }} />}
         {view === 'admin' && isLoggedIn && <AdminDashboard feedbacks={feedbacks} />}
+        {view === 'stall' && isLoggedIn && <StallManager />}
         {view === 'quiz-admin' && isLoggedIn && (
           <QuizManager 
             questions={quizQuestions} 
@@ -430,7 +440,7 @@ const App: React.FC = () => {
            <div className="h-px w-24 bg-slate-200"></div>
         </div>
         <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em] px-4">
-          B and B Textile • Erode • Process Intelligence v2.6.0
+          B and B Textile • Erode • Process Intelligence v2.7.0
         </p>
       </footer>
     </div>
